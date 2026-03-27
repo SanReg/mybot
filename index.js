@@ -6,6 +6,7 @@ const { createQuizModule } = require('./quiz');
 const { createVotingModule } = require('./voting');
 
 const PORT = Number(process.env.PORT || 3000);
+const HEALTH_SERVER_START_TIMEOUT_MS = Number(process.env.HEALTH_SERVER_START_TIMEOUT_MS || 25000);
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const TEST_GUILD_IDS = toIdSetFromMany(process.env.GUILD_IDS, process.env.GUILD_ID);
@@ -44,6 +45,7 @@ const client = new Client({
 
 let discordLoginStartedAt = null;
 let lastDiscordLoginError = null;
+let healthServerStarted = false;
 
 const app = express();
 
@@ -78,11 +80,19 @@ app.get('/ready', (_req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Health server listening on port ${PORT}`);
-});
+function startHealthServer() {
+  if (healthServerStarted) {
+    return;
+  }
 
-client.once('ready', async () => {
+  app.listen(PORT, () => {
+    console.log(`Health server listening on port ${PORT}`);
+  });
+
+  healthServerStarted = true;
+}
+
+client.once('clientReady', async () => {
   lastDiscordLoginError = null;
   console.log(`Discord bot logged in as ${client.user.tag}`);
 
@@ -119,6 +129,8 @@ client.once('ready', async () => {
       }
     }
   }
+
+  startHealthServer();
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -178,9 +190,19 @@ client.on('shardError', (error) => {
 
 discordLoginStartedAt = new Date().toISOString();
 console.log(`Starting Discord login at ${discordLoginStartedAt}`);
+setTimeout(() => {
+  if (!healthServerStarted) {
+    console.warn(
+      `Discord login still not ready after ${HEALTH_SERVER_START_TIMEOUT_MS}ms; starting health server for diagnostics.`
+    );
+    startHealthServer();
+  }
+}, HEALTH_SERVER_START_TIMEOUT_MS);
+
 client.login(DISCORD_TOKEN).catch((error) => {
   lastDiscordLoginError = `Login failed: ${error.message}`;
   console.error('Discord login failed:', error);
+  startHealthServer();
 });
 
 function toIdSet(ids) {
