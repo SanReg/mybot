@@ -21,6 +21,9 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
       new SlashCommandBuilder()
         .setName('scoreboard')
         .setDescription('Show quiz scoreboard for this server.'),
+      new SlashCommandBuilder()
+        .setName('reset')
+        .setDescription('Reset quiz scoreboard for this server.'),
     ];
   }
 
@@ -32,6 +35,11 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
 
     if (interaction.commandName === 'scoreboard') {
       await handleScoreboardCommand(interaction);
+      return true;
+    }
+
+    if (interaction.commandName === 'reset') {
+      await handleResetCommand(interaction);
       return true;
     }
 
@@ -183,6 +191,23 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
       .map((entry, idx) => `${idx + 1}. ${entry.username} - ${entry.points} pts`);
 
     await interaction.reply(`Quiz Scoreboard\n${lines.join('\n')}`);
+  }
+
+  async function handleResetCommand(interaction) {
+    if (!quizMasterIds.has(interaction.user.id)) {
+      await interaction.reply({
+        content: 'Only quiz masters can reset the quiz scoreboard.',
+        flags: 64,
+      });
+      return;
+    }
+
+    scoreBoard.clear();
+
+    await interaction.reply({
+      content: 'Quiz scoreboard has been reset.',
+      flags: 64,
+    });
   }
 
   async function closeQuiz(channelId, channel, reason) {

@@ -2,6 +2,7 @@
 
 This bot provides:
 - Quiz mode: `/question name:<text> answer:<text>` by authorized users only.
+- Quiz scoreboard reset: `/reset` by quiz masters only.
 - Voting mode: `/start-vote duration:<minutes> number:<n>` by authorized users only, and `/vote number:<x>` by users with a required role.
 - Health endpoint: `GET /health` on `PORT` (default `3000`).
 
@@ -14,6 +15,7 @@ This bot provides:
 - First correct answer: `100` points, second: `60`, third: `40`.
 - Winner usernames and per-question points are recorded in memory.
 - Total user points are tracked in a global in-memory scoreboard (`/scoreboard`).
+- Only IDs in `QUIZ_MASTER_IDS` can run `/reset` to clear the scoreboard.
 
 2. Vote bot
 - Only IDs in `VOTE_STARTER_IDS` can run `/start-vote`.
