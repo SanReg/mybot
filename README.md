@@ -85,6 +85,6 @@ Returns JSON like:
 
 - Data is currently in-memory (resets on restart).
 - Code is split into `quiz.js` and `voting.js`, wired by `index.js`.
-- If `GUILD_IDS` is set, slash commands register instantly in each listed guild.
-- `GUILD_ID` still works as a legacy single-guild fallback.
-- Without either `GUILD_IDS` or `GUILD_ID`, commands are registered globally and propagation can take some time.
+- Slash commands are always registered globally so they work in every guild where the bot is installed.
+- If `GUILD_IDS` or `GUILD_ID` is set, the bot also tries a fast test-guild sync for those IDs.
+- Invalid test guild IDs are skipped with a warning and no longer crash bot startup.

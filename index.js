@@ -71,15 +71,28 @@ client.once('clientReady', async () => {
     ...voting.buildCommands(),
   ].map((c) => c.toJSON());
 
+  // Always register globally so commands work in every guild where the bot is installed.
+  await client.application.commands.set(commands);
+  console.log('Registered global slash commands (can take time to appear).');
+
+  // Optional fast registration for listed test guilds; failures should not crash startup.
   if (TEST_GUILD_IDS.size > 0) {
     for (const guildId of TEST_GUILD_IDS) {
-      const guild = await client.guilds.fetch(guildId);
-      await guild.commands.set(commands);
-      console.log(`Registered slash commands for guild ${guildId}`);
+      try {
+        const guild = await client.guilds.fetch(guildId);
+        await guild.commands.set(commands);
+        console.log(`Registered slash commands for test guild ${guildId}`);
+      } catch (error) {
+        if (error && error.code === 10004) {
+          console.warn(
+            `Skipping unknown test guild ${guildId}. Remove it from GUILD_IDS if it is no longer valid.`
+          );
+          continue;
+        }
+
+        console.error(`Failed to register commands for test guild ${guildId}:`, error);
+      }
     }
-  } else {
-    await client.application.commands.set(commands);
-    console.log('Registered global slash commands (can take time to appear).');
   }
 });
 
