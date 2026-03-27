@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
 const { createQuizModule } = require('./quiz');
 const { createVotingModule } = require('./voting');
 
@@ -60,6 +60,11 @@ app.listen(PORT, () => {
 
 client.once('clientReady', async () => {
   console.log(`Discord bot logged in as ${client.user.tag}`);
+
+  client.user.setPresence({
+    activities: [{ name: 'Earning Slices...', type: ActivityType.Playing }],
+    status: 'online',
+  });
 
   const commands = [
     ...(ENABLE_QUIZ ? quiz.buildCommands() : []),
