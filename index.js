@@ -82,7 +82,7 @@ app.listen(PORT, () => {
   console.log(`Health server listening on port ${PORT}`);
 });
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
   lastDiscordLoginError = null;
   console.log(`Discord bot logged in as ${client.user.tag}`);
 
