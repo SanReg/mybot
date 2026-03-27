@@ -42,12 +42,17 @@ const client = new Client({
   ],
 });
 
+let discordLoginStartedAt = null;
+let lastDiscordLoginError = null;
+
 const app = express();
 
 app.get('/health', (_req, res) => {
   res.status(200).json({
     status: 'ok',
     botReady: client.isReady(),
+    discordLoginStartedAt,
+    discordLoginError: lastDiscordLoginError,
     activeQuizChannels: ENABLE_QUIZ ? quiz.getActiveCount() : 0,
     activeVoteChannels: voting.getActiveCount(),
     timestamp: new Date().toISOString(),
@@ -59,6 +64,7 @@ app.listen(PORT, () => {
 });
 
 client.once('clientReady', async () => {
+  lastDiscordLoginError = null;
   console.log(`Discord bot logged in as ${client.user.tag}`);
 
   client.user.setPresence({
@@ -142,10 +148,20 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('error', (error) => {
+  lastDiscordLoginError = `Client error: ${error.message}`;
   console.error('Discord client error:', error);
 });
 
-client.login(DISCORD_TOKEN);
+client.on('shardError', (error) => {
+  lastDiscordLoginError = `Gateway shard error: ${error.message}`;
+  console.error('Discord shard error:', error);
+});
+
+discordLoginStartedAt = new Date().toISOString();
+client.login(DISCORD_TOKEN).catch((error) => {
+  lastDiscordLoginError = `Login failed: ${error.message}`;
+  console.error('Discord login failed:', error);
+});
 
 function toIdSet(ids) {
   if (!ids) {
