@@ -59,6 +59,25 @@ app.get('/health', (_req, res) => {
   });
 });
 
+app.get('/ready', (_req, res) => {
+  if (!client.isReady()) {
+    res.status(503).json({
+      status: 'starting',
+      botReady: false,
+      discordLoginStartedAt,
+      discordLoginError: lastDiscordLoginError,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  res.status(200).json({
+    status: 'ready',
+    botReady: true,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Health server listening on port ${PORT}`);
 });
@@ -158,6 +177,7 @@ client.on('shardError', (error) => {
 });
 
 discordLoginStartedAt = new Date().toISOString();
+console.log(`Starting Discord login at ${discordLoginStartedAt}`);
 client.login(DISCORD_TOKEN).catch((error) => {
   lastDiscordLoginError = `Login failed: ${error.message}`;
   console.error('Discord login failed:', error);
