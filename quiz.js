@@ -205,10 +205,12 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
 
     scoreBoard.clear();
 
-    await interaction.reply({
-      content: 'Quiz scoreboard has been reset.',
-      flags: 64,
-    });
+    const resetMessage = `<@${interaction.user.id}> reset the leaderboard.`;
+    await interaction.reply(resetMessage);
+
+    console.log(
+      `[QUIZ_RESET] guild=${interaction.guildId || 'DM'} channel=${interaction.channelId} user=${interaction.user.id} username=${interaction.user.username}`
+    );
   }
 
   async function closeQuiz(channelId, channel, reason) {

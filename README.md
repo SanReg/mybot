@@ -1,5 +1,13 @@
 # Quiz + Vote Discord Bot (Node.js)
 
+cd mybot
+git pull origin master
+docker stop quizbot || true
+docker rm quizbot || true
+docker build -t quizbot .
+docker run -d --name quizbot --restart unless-stopped --env-file .env -p 3000:3000 quizbot
+docker logs -f quizbot
+
 This bot provides:
 - Quiz mode: `/question name:<text> answer:<text>` by authorized users only.
 - Quiz scoreboard reset: `/reset` by quiz masters only.
@@ -17,6 +25,7 @@ This bot provides:
 - Winner usernames and per-question points are recorded in memory.
 - Total user points are tracked in a global in-memory scoreboard (`/scoreboard`).
 - Only IDs in `QUIZ_MASTER_IDS` can run `/reset` to clear the scoreboard.
+- Successful `/reset` posts in the same channel as `<@userId> reset the leaderboard.` and is logged on the server.
 
 2. Vote bot
 - Only IDs in `VOTE_STARTER_IDS` can run `/start-vote`.
