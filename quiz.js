@@ -203,13 +203,39 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
       return;
     }
 
+    const previousEntries = scoreBoard.size;
     scoreBoard.clear();
 
     const resetMessage = `<@${interaction.user.id}> reset the leaderboard.`;
-    await interaction.reply(resetMessage);
+    try {
+      if (interaction.channel && interaction.channel.isTextBased()) {
+        await interaction.channel.send({
+          content: resetMessage,
+          allowedMentions: { users: [interaction.user.id] },
+        });
+      }
+
+      if (interaction.deferred || interaction.replied) {
+        await interaction.followUp({
+          content: 'Leaderboard reset complete.',
+          flags: 64,
+        });
+      } else {
+        await interaction.reply({
+          content: 'Leaderboard reset complete.',
+          flags: 64,
+        });
+      }
+    } catch (error) {
+      console.error('[QUIZ_RESET] failed to post channel confirmation:', error);
+
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.reply({ content: resetMessage }).catch(() => null);
+      }
+    }
 
     console.log(
-      `[QUIZ_RESET] guild=${interaction.guildId || 'DM'} channel=${interaction.channelId} user=${interaction.user.id} username=${interaction.user.username}`
+      `[QUIZ_RESET] guild=${interaction.guildId || 'DM'} channel=${interaction.channelId} user=${interaction.user.id} username=${interaction.user.username} clearedEntries=${previousEntries}`
     );
   }
 
