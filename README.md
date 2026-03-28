@@ -4,6 +4,7 @@ This bot provides:
 - Quiz mode: `/question name:<text> answer:<text>` by authorized users only.
 - Quiz scoreboard reset: `/reset` by quiz masters only.
 - Voting mode: `/start-vote duration:<minutes> number:<n>` by authorized users only, and `/vote number:<x>` by users with a required role.
+- Echo mode: `/echo message:<text>` replies privately and posts the same text to the channel, restricted to allowed user IDs.
 - Health endpoint: `GET /health` on `PORT` (default `3000`).
 
 ## Features implemented
@@ -24,6 +25,10 @@ This bot provides:
 - Each participant can vote exactly 3 times, and all 3 must be different valid numbers.
 - Username and number for each vote are recorded in memory.
 - `/vote-results` shows current standings.
+
+3. Echo bot
+- `/echo message:<text>` sends a private confirmation and repeats the same message publicly in the same channel.
+- Only users listed in `ECHO_MASTER_IDS` can use `/echo`.
 
 ## Setup
 
@@ -52,6 +57,7 @@ PORT=3000
 QUIZ_MASTER_IDS=111111111111111111,222222222222222222
 VOTE_STARTER_IDS=111111111111111111,333333333333333333
 VOTER_ROLE_ID=444444444444444444
+ECHO_MASTER_IDS=111111111111111111,222222222222222222
 QUIZ_TIMEOUT_SECONDS=600
 ENABLE_QUIZ=false
 ```

@@ -4,6 +4,7 @@ const express = require('express');
 const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
 const { createQuizModule } = require('./quiz');
 const { createVotingModule } = require('./voting');
+const { createEchoModule } = require('./echo');
 
 const PORT = Number(process.env.PORT || 3000);
 const HEALTH_SERVER_START_TIMEOUT_MS = Number(process.env.HEALTH_SERVER_START_TIMEOUT_MS || 25000);
@@ -14,6 +15,7 @@ const TEST_GUILD_IDS = toIdSetFromMany(process.env.GUILD_IDS, process.env.GUILD_
 const QUIZ_MASTER_IDS = toIdSet(process.env.QUIZ_MASTER_IDS);
 const VOTE_STARTER_IDS = toIdSet(process.env.VOTE_STARTER_IDS);
 const VOTER_ROLE_ID = process.env.VOTER_ROLE_ID;
+const ECHO_MASTER_IDS = toIdSet(process.env.ECHO_MASTER_IDS);
 const QUIZ_TIMEOUT_SECONDS = Number(process.env.QUIZ_TIMEOUT_SECONDS || 600);
 const ENABLE_QUIZ = process.env.ENABLE_QUIZ === 'true';
 
@@ -33,6 +35,10 @@ const quiz = createQuizModule({
 const voting = createVotingModule({
   voteStarterIds: VOTE_STARTER_IDS,
   voterRoleId: VOTER_ROLE_ID,
+});
+
+const echo = createEchoModule({
+  echoMasterIds: ECHO_MASTER_IDS,
 });
 
 const client = new Client({
@@ -104,6 +110,7 @@ client.once('clientReady', async () => {
   const commands = [
     ...(ENABLE_QUIZ ? quiz.buildCommands() : []),
     ...voting.buildCommands(),
+    ...echo.buildCommands(),
   ].map((c) => c.toJSON());
 
   // Always register globally so commands work in every guild where the bot is installed.
@@ -148,6 +155,11 @@ client.on('interactionCreate', async (interaction) => {
 
     const voteHandled = await voting.handleInteraction(interaction);
     if (voteHandled) {
+      return;
+    }
+
+    const echoHandled = await echo.handleInteraction(interaction);
+    if (echoHandled) {
       return;
     }
   } catch (error) {
