@@ -65,6 +65,83 @@ Set `ENABLE_QUIZ=true` to re-enable quiz features.
 npm start
 ```
 
+## Deploy On Ubuntu VM (Docker)
+
+### 1. Install Docker on the VM
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### 2. Copy or clone the bot project
+
+```bash
+git clone <your-repo-url> quizBot
+cd quizBot
+```
+
+### 3. Create your `.env` file
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+If your repo does not have `.env.example`, create `.env` manually with the required values.
+
+### 4. Build the Docker image
+
+```bash
+docker build -t quizbot:latest .
+```
+
+### 5. Run the container
+
+```bash
+docker run -d \
+  --name quizbot \
+  --restart unless-stopped \
+  --env-file .env \
+  -p 3000:3000 \
+  quizbot:latest
+```
+
+### 6. Verify bot and health endpoint
+
+```bash
+docker ps
+docker logs -f quizbot
+curl http://localhost:3000/health
+```
+
+### 7. Update after code changes
+
+```bash
+docker stop quizbot
+docker rm quizbot
+docker build -t quizbot:latest .
+docker run -d \
+  --name quizbot \
+  --restart unless-stopped \
+  --env-file .env \
+  -p 3000:3000 \
+  quizbot:latest
+```
+
+If you use a cloud firewall/security group, allow inbound TCP on port `3000` only if you need external access to `/health`.
+
 ## Health check
 
 ```bash

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 
 const rankPoints = [100, 60, 40];
 
@@ -13,7 +13,7 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
         .setName('question')
         .setDescription('Start a quiz question in this channel.')
         .addStringOption((option) =>
-          option.setName('name').setDescription('Question text').setRequired(true)
+          option.setName('name').setDescription('Question text or GIF URL').setRequired(true)
         )
         .addStringOption((option) =>
           option.setName('answer').setDescription('Expected answer').setRequired(true)
@@ -78,7 +78,7 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
       return;
     }
 
-    const questionName = interaction.options.getString('name', true);
+    const questionName = interaction.options.getString('name', true).trim();
     const answer = interaction.options.getString('answer', true);
 
     const quiz = {
@@ -108,11 +108,12 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
 
     activeQuizByChannel.set(interaction.channelId, quiz);
 
-    await interaction.channel.send(
-      `Quiz started by ${interaction.user}.\n` +
-        `Question: **${escapeMarkdown(questionName)}**\n` +
-        'Type your answer in channel. First correct user gets 100 points, second 60, third 40.'
-    );
+    await interaction.channel.send(buildQuestionMessage({
+      askedBy: `${interaction.user}`,
+      questionName,
+      instruction:
+        'Type your answer in channel. First correct user gets 100 points, second 60, third 40.',
+    }));
 
     await interaction.reply({
       content: 'Quiz posted in this channel.',
@@ -232,7 +233,11 @@ function createQuizModule({ quizMasterIds, timeoutSeconds }) {
       : 'No correct answers.';
 
     await channel.send(
-      `${reason}\nQuestion: **${escapeMarkdown(quiz.questionName)}**\nRight answer: **${escapeMarkdown(quiz.answerText)}**\nWinners:\n${winnersSummary}`
+      buildQuestionMessage({
+        prefix: reason,
+        questionName: quiz.questionName,
+        suffix: `Right answer: **${escapeMarkdown(quiz.answerText)}**\nWinners:\n${winnersSummary}`,
+      })
     );
   }
 
@@ -267,6 +272,54 @@ function normalizeAnswer(input) {
 
 function escapeMarkdown(value) {
   return value.replace(/[\\`*_{}\[\]()#+\-.!|>]/g, '\\$&');
+}
+
+function formatQuestionLine(questionName) {
+  if (isGifUrl(questionName)) {
+    return 'Question (GIF):';
+  }
+
+  return `Question: **${escapeMarkdown(questionName)}**`;
+}
+
+function isGifUrl(value) {
+  if (!/^https?:\/\/\S+$/i.test(value)) {
+    return false;
+  }
+
+  return /\.gif(\?.*)?$/i.test(value) || /(tenor\.com|giphy\.com)/i.test(value);
+}
+
+function buildQuestionMessage({ askedBy, prefix, questionName, instruction, suffix }) {
+  const lines = [];
+
+  if (prefix) {
+    lines.push(prefix);
+  }
+
+  if (askedBy) {
+    lines.push(`Quiz started by ${askedBy}.`);
+  }
+
+  lines.push(formatQuestionLine(questionName));
+
+  if (instruction) {
+    lines.push(instruction);
+  }
+
+  if (suffix) {
+    lines.push(suffix);
+  }
+
+  if (!isGifUrl(questionName)) {
+    return lines.join('\n');
+  }
+
+  const embed = new EmbedBuilder().setImage(questionName);
+  return {
+    content: lines.join('\n'),
+    embeds: [embed],
+  };
 }
 
 module.exports = {
