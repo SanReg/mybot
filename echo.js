@@ -53,6 +53,11 @@ function createEchoModule({ echoMasterIds }) {
     }
 
     const message = interaction.options.getString('message', true);
+    const timestamp = new Date().toISOString();
+
+    console.log(
+      `[ECHO_AUDIT] time=${timestamp} user=${interaction.user.username} (${interaction.user.id}) message=${JSON.stringify(message)}`
+    );
 
     await interaction.channel.send(message);
     await interaction.reply({
