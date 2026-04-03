@@ -32,6 +32,7 @@ This bot provides:
 
 2. Vote bot
 - Only IDs in `VOTE_STARTER_IDS` can run `/start-vote`.
+- Only IDs in `VOTE_STARTER_IDS` can run `/end-vote` to close the active vote immediately.
 - Vote starter supplies meme links (`meme1`, `meme2`, ... up to `meme10`).
 - Bot posts one normal message per meme, each with one vote button for that meme.
 - Reddit links are automatically converted to `https://vxreddit.com/...` for better media preview.

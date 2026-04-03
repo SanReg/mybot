@@ -57,6 +57,9 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
         .setName('my-votes')
         .setDescription('Show your submitted meme votes in the active server vote.'),
       new SlashCommandBuilder()
+        .setName('end-vote')
+        .setDescription('End the active meme vote in this server (vote starters only).'),
+      new SlashCommandBuilder()
         .setName('vote-results')
         .setDescription('Show current meme vote standing for this server (vote starters only).'),
       new SlashCommandBuilder()
@@ -86,6 +89,11 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     if (interaction.commandName === 'my-votes') {
       await handleMyVotesCommand(interaction);
+      return true;
+    }
+
+    if (interaction.commandName === 'end-vote') {
+      await handleEndVoteCommand(interaction);
       return true;
     }
 
@@ -458,6 +466,45 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     await interaction.reply({
       content,
+      flags: 64,
+    });
+  }
+
+  async function handleEndVoteCommand(interaction) {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only be used in a server.',
+        flags: 64,
+      });
+      return;
+    }
+
+    const isStarter = voteStarterIds.has(interaction.user.id);
+    if (!isStarter) {
+      await interaction.reply({
+        content: 'You are not allowed to end votes.',
+        flags: 64,
+      });
+      return;
+    }
+
+    const vote = activeVoteByGuild.get(interaction.guildId);
+    if (!vote || vote.closed) {
+      await interaction.reply({
+        content: 'There is no active vote in this server.',
+        flags: 64,
+      });
+      return;
+    }
+
+    await closeVote(
+      interaction.guildId,
+      interaction.channel,
+      `Vote ended manually by <@${interaction.user.id}>.`
+    );
+
+    await interaction.reply({
+      content: 'Vote ended successfully.',
       flags: 64,
     });
   }
