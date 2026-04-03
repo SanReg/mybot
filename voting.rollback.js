@@ -1,15 +1,8 @@
-const {
-  SlashCommandBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
 const VOTE_STORE_FILE = path.join(process.cwd(), 'vote.json');
-const MAX_MEMES = 10;
-const REQUIRED_VOTES_PER_USER = 3;
 
 function createVotingModule({ voteStarterIds, voterRoleId }) {
   const activeVoteByGuild = new Map();
@@ -22,7 +15,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     return [
       new SlashCommandBuilder()
         .setName('start-vote')
-        .setDescription('Start a meme vote in this server.')
+        .setDescription('Start a vote in this server.')
         .addIntegerOption((option) =>
           option
             .setName('duration')
@@ -31,56 +24,44 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
             .setMinValue(1)
             .setMaxValue(168)
         )
-        .addStringOption((option) =>
+        .addIntegerOption((option) =>
           option
-            .setName('meme1')
-            .setDescription('Reddit meme link 1')
+            .setName('number')
+            .setDescription('Maximum vote number (1..n)')
             .setRequired(true)
-            .setMaxLength(1000)
-        )
-        .addStringOption((option) =>
+            .setMinValue(1)
+            .setMaxValue(1000)
+        ),
+      new SlashCommandBuilder()
+        .setName('vote')
+        .setDescription('Vote for a number in the active server vote.')
+        .addIntegerOption((option) =>
           option
-            .setName('meme2')
-            .setDescription('Reddit meme link 2')
+            .setName('number')
+            .setDescription('Your chosen number (1..n)')
             .setRequired(true)
-            .setMaxLength(1000)
-        )
-        .addStringOption((option) => option.setName('meme3').setDescription('Reddit meme link 3').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme4').setDescription('Reddit meme link 4').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme5').setDescription('Reddit meme link 5').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme6').setDescription('Reddit meme link 6').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme7').setDescription('Reddit meme link 7').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme8').setDescription('Reddit meme link 8').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme9').setDescription('Reddit meme link 9').setMaxLength(1000))
-        .addStringOption((option) => option.setName('meme10').setDescription('Reddit meme link 10').setMaxLength(1000)),
+            .setMinValue(1)
+        ),
       new SlashCommandBuilder()
         .setName('my-votes')
-        .setDescription('Show your submitted meme votes in the active server vote.'),
+        .setDescription('Show your submitted votes in the active server vote.'),
       new SlashCommandBuilder()
         .setName('vote-results')
-        .setDescription('Show current meme vote standing for this server (vote starters only).'),
+        .setDescription('Show current vote standing for this server.'),
       new SlashCommandBuilder()
         .setName('vote-details')
-        .setDescription('Show per-user meme vote details for this server (vote starters only).'),
+        .setDescription('Show per-user vote counts for this server.'),
     ];
   }
 
   async function handleInteraction(interaction) {
-    if (interaction.isButton()) {
-      if (!interaction.customId.startsWith('memevote:')) {
-        return false;
-      }
-
-      await handleMemeVoteButton(interaction);
+    if (interaction.commandName === 'start-vote') {
+      await handleStartVoteCommand(interaction);
       return true;
     }
 
-    if (!interaction.isChatInputCommand()) {
-      return false;
-    }
-
-    if (interaction.commandName === 'start-vote') {
-      await handleStartVoteCommand(interaction);
+    if (interaction.commandName === 'vote') {
+      await handleVoteCommand(interaction);
       return true;
     }
 
@@ -129,38 +110,24 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const memeLinks = collectMemeLinks(interaction);
-    const invalidLink = memeLinks.find((link) => !isLikelyHttpUrl(link));
-    if (invalidLink) {
-      await interaction.reply({
-        content: `Invalid meme link: ${invalidLink}`,
-        flags: 64,
-      });
-      return;
-    }
-
     const duration = interaction.options.getInteger('duration', true);
     const remainingMs = duration * 60 * 60 * 1000;
     const endAt = Date.now() + remainingMs;
     const endsOnEpochSeconds = Math.floor(endAt / 1000);
 
-    const memes = memeLinks.map((link, idx) => ({
-      index: idx + 1,
-      link,
-      messageId: null,
-    }));
+    const n = interaction.options.getInteger('number', true);
 
     const vote = {
-      id: `${guildId}-${Date.now()}`,
+      id: `${guildId}:${Date.now()}`,
       guildId,
       startChannelId: interaction.channelId,
       startedById: interaction.user.id,
       startedByUsername: interaction.user.username,
       createdAt: Date.now(),
       endAt,
-      memes,
+      maxNumber: n,
       votesByUser: new Map(),
-      votersByMeme: new Map(memes.map((m) => [m.index, new Set()])),
+      votersByNumber: new Map(Array.from({ length: n }, (_, i) => [i + 1, new Set()])),
       voteLog: [],
       closed: false,
       timeoutHandle: null,
@@ -183,36 +150,18 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     await interaction.reply({
       content:
-        `Meme vote started by ${interaction.user}.\n` +
+        `Vote started by ${interaction.user}.\n` +
         `Duration: **${duration} hour(s)**\n` +
         `Ends on: <t:${endsOnEpochSeconds}:F> (<t:${endsOnEpochSeconds}:R>)\n` +
-        `Memes in this round: **${memes.length}**\n` +
-        `Eligible users can vote using the buttons below. Each user can vote exactly ${REQUIRED_VOTES_PER_USER} times for different memes.`,
+        `Valid numbers: **1 to ${n}**\n` +
+        'Eligible users can vote from any channel in this server with /vote number:<n>. Each user can vote exactly three times for three different numbers.',
     });
-
-    for (const meme of memes) {
-      const button = new ButtonBuilder()
-        .setCustomId(buildMemeButtonCustomId(vote.id, meme.index))
-        .setLabel(`Vote Meme #${meme.index}`)
-        .setStyle(ButtonStyle.Primary);
-
-      const row = new ActionRowBuilder().addComponents(button);
-
-      const posted = await interaction.channel.send({
-        content: `**Meme #${meme.index}**\n${meme.link}\nClick the button below to vote for this meme.`,
-        components: [row],
-      });
-
-      meme.messageId = posted.id;
-    }
-
-    savePersistentState();
   }
 
-  async function handleMemeVoteButton(interaction) {
+  async function handleVoteCommand(interaction) {
     if (!interaction.inGuild()) {
       await interaction.reply({
-        content: 'This button can only be used in a server.',
+        content: 'This command can only be used in a server.',
         flags: 64,
       });
       return;
@@ -234,28 +183,11 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const parsed = parseMemeButtonCustomId(interaction.customId);
-    if (!parsed) {
-      await interaction.reply({
-        content: 'Invalid vote button.',
-        flags: 64,
-      });
-      return;
-    }
-
     const guildId = interaction.guildId;
     const vote = activeVoteByGuild.get(guildId);
     if (!vote || vote.closed) {
       await interaction.reply({
         content: 'There is no active vote in this server.',
-        flags: 64,
-      });
-      return;
-    }
-
-    if (parsed.voteId !== vote.id) {
-      await interaction.reply({
-        content: 'This vote button belongs to an older vote round.',
         flags: 64,
       });
       return;
@@ -270,10 +202,10 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const meme = vote.memes.find((item) => item.index === parsed.memeIndex);
-    if (!meme) {
+    const number = interaction.options.getInteger('number', true);
+    if (number < 1 || number > vote.maxNumber) {
       await interaction.reply({
-        content: 'Selected meme was not found in this vote.',
+        content: `Invalid number. Choose between 1 and ${vote.maxNumber}.`,
         flags: 64,
       });
       return;
@@ -281,47 +213,44 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     const userVotes = vote.votesByUser.get(interaction.user.id) || new Set();
 
-    if (userVotes.has(meme.index)) {
+    if (userVotes.has(number)) {
       await interaction.reply({
-        content: `You already voted for Meme #${meme.index}. Choose a different meme.`,
+        content: `You already voted for number ${number}. Choose a different number.`,
         flags: 64,
       });
       return;
     }
 
-    if (userVotes.size >= REQUIRED_VOTES_PER_USER) {
+    if (userVotes.size >= 3) {
       await interaction.reply({
-        content: `You already used your ${REQUIRED_VOTES_PER_USER} votes.`,
+        content: 'You already used your 3 votes.',
         flags: 64,
       });
       return;
     }
 
-    userVotes.add(meme.index);
+    userVotes.add(number);
     vote.votesByUser.set(interaction.user.id, userVotes);
 
-    const votersForMeme = vote.votersByMeme.get(meme.index) || new Set();
-    votersForMeme.add(interaction.user.id);
-    vote.votersByMeme.set(meme.index, votersForMeme);
+    const votersForNumber = vote.votersByNumber.get(number) || new Set();
+    votersForNumber.add(interaction.user.id);
+    vote.votersByNumber.set(number, votersForNumber);
 
     vote.voteLog.push({
       userId: interaction.user.id,
       username: interaction.user.username,
-      memeIndex: meme.index,
-      memeLink: meme.link,
+      number,
       votedAt: Date.now(),
-      source: 'button',
     });
 
     savePersistentState();
 
-    const remaining = REQUIRED_VOTES_PER_USER - userVotes.size;
+    const remaining = 3 - userVotes.size;
 
     await interaction.reply({
       content:
-        `Vote recorded for Meme #${meme.index}.\n` +
-        `Link: ${meme.link}\n` +
-        `Remaining votes: **${remaining}** (must be different memes).`,
+        `Vote recorded: **${number}**.\n` +
+        `Remaining votes: **${remaining}** (must be different valid numbers).`,
       flags: 64,
     });
   }
@@ -330,6 +259,14 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'This command can only be used in a server.',
+        flags: 64,
+      });
+      return;
+    }
+
+    if (!interaction.member || !interaction.member.roles || !interaction.member.roles.cache) {
+      await interaction.reply({
+        content: 'Could not validate your server role.',
         flags: 64,
       });
       return;
@@ -355,10 +292,11 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     const { vote, isActive } = resolvedVote;
 
-    const lines = vote.memes.map((meme) => {
-      const voters = vote.votersByMeme.get(meme.index) || new Set();
-      return `#${meme.index}: ${voters.size} vote(s) - ${meme.link}`;
-    });
+    const lines = [];
+    for (let i = 1; i <= vote.maxNumber; i += 1) {
+      const voterIds = vote.votersByNumber.get(i) || new Set();
+      lines.push(`${i}: ${voterIds.size} vote(s)`);
+    }
 
     await interaction.reply({
       content: `${isActive ? 'Current vote results' : 'Latest closed vote results'}\n${lines.join('\n')}`,
@@ -385,19 +323,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     }
 
     const userVotes = vote.votesByUser.get(interaction.user.id) || new Set();
-    const selected = [...userVotes]
-      .sort((a, b) => a - b)
-      .map((index) => {
-        const meme = vote.memes.find((entry) => entry.index === index);
-        return meme ? `#${index}: ${meme.link}` : `#${index}`;
-      });
-
-    const remaining = Math.max(0, REQUIRED_VOTES_PER_USER - userVotes.size);
+    const numbers = [...userVotes].sort((a, b) => a - b);
+    const remaining = Math.max(0, 3 - userVotes.size);
 
     await interaction.reply({
       content:
-        `Your meme votes:\n${selected.length ? selected.join('\n') : 'none'}\n` +
-        `Used: ${userVotes.size}/${REQUIRED_VOTES_PER_USER}\n` +
+        `Your votes: ${numbers.length ? numbers.join(', ') : 'none'}\n` +
+        `Used: ${userVotes.size}/3\n` +
         `Remaining: ${remaining}`,
       flags: 64,
     });
@@ -438,16 +370,8 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
         const latestUsername = userVoteEntries.length
           ? userVoteEntries[userVoteEntries.length - 1].username
           : 'unknown';
-
-        const votedMemes = [...votesSet]
-          .sort((a, b) => a - b)
-          .map((index) => {
-            const meme = vote.memes.find((entry) => entry.index === index);
-            return meme ? `#${index}` : `#${index}`;
-          })
-          .join(', ');
-
-        return `- ${latestUsername} (<@${userId}>): ${votesSet.size} vote(s) [${votedMemes || 'none'}]`;
+        const numbers = [...votesSet].sort((a, b) => a - b);
+        return `- ${latestUsername} (<@${userId}>): ${votesSet.size} vote(s) [${numbers.join(', ') || 'none'}]`;
       })
       .sort((a, b) => a.localeCompare(b));
 
@@ -478,11 +402,9 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     saveVoteHistory(guildId, vote);
     savePersistentState();
 
-    if (channel && channel.isTextBased()) {
-      await channel.send(
-        `${reason}\nVote is now closed. Authorized users can view results privately with /vote-results.`
-      );
-    }
+    await channel.send(
+      `${reason}\nVote is now closed. Authorized users can view results privately with /vote-results.`
+    );
   }
 
   function saveVoteHistory(guildId, vote) {
@@ -496,8 +418,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       startedByUsername: vote.startedByUsername,
       createdAt: vote.createdAt,
       closedAt: Date.now(),
-      endAt: vote.endAt,
-      memes: vote.memes.map((m) => ({ index: m.index, link: m.link, messageId: m.messageId || null })),
+      maxNumber: vote.maxNumber,
       voteLog: [...vote.voteLog],
     });
 
@@ -524,31 +445,27 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
   function historyEntryToVoteView(historyEntry) {
     const voteLog = historyEntry.voteLog || [];
-    const memes = normalizeMemesForHistory(historyEntry);
+    const votersByNumber = new Map();
+    for (let i = 1; i <= historyEntry.maxNumber; i += 1) {
+      votersByNumber.set(i, new Set());
+    }
 
-    const votersByMeme = new Map(memes.map((meme) => [meme.index, new Set()]));
     const votesByUser = new Map();
-
     for (const entry of voteLog) {
-      const memeIndex = entry.memeIndex ?? entry.number;
-      if (!Number.isFinite(memeIndex)) {
-        continue;
+      if (!votersByNumber.has(entry.number)) {
+        votersByNumber.set(entry.number, new Set());
       }
-
-      if (!votersByMeme.has(memeIndex)) {
-        votersByMeme.set(memeIndex, new Set());
-      }
-      votersByMeme.get(memeIndex).add(entry.userId);
+      votersByNumber.get(entry.number).add(entry.userId);
 
       const existingVotes = votesByUser.get(entry.userId) || new Set();
-      existingVotes.add(memeIndex);
+      existingVotes.add(entry.number);
       votesByUser.set(entry.userId, existingVotes);
     }
 
     return {
-      memes,
+      maxNumber: historyEntry.maxNumber,
       voteLog,
-      votersByMeme,
+      votersByNumber,
       votesByUser,
       closed: true,
     };
@@ -556,7 +473,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
   function savePersistentState() {
     const payload = {
-      version: 2,
+      version: 1,
       activeVotesByGuild: Object.fromEntries(
         [...activeVoteByGuild.entries()].map(([guildId, vote]) => [guildId, serializeVote(vote)])
       ),
@@ -582,9 +499,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       const activeVotesByGuild = data.activeVotesByGuild || {};
       for (const [guildId, serializedVote] of Object.entries(activeVotesByGuild)) {
         const vote = deserializeVote(serializedVote);
-        if (vote) {
-          activeVoteByGuild.set(guildId, vote);
-        }
+        activeVoteByGuild.set(guildId, vote);
       }
 
       const persistedHistory = data.voteHistoryByGuild || {};
@@ -632,28 +547,26 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       startedByUsername: vote.startedByUsername,
       createdAt: vote.createdAt,
       endAt: vote.endAt,
-      memes: vote.memes.map((m) => ({ index: m.index, link: m.link, messageId: m.messageId || null })),
+      maxNumber: vote.maxNumber,
       voteLog: [...vote.voteLog],
       closed: vote.closed,
       votesByUser: Object.fromEntries(
         [...vote.votesByUser.entries()].map(([userId, values]) => [userId, [...values]])
       ),
-      votersByMeme: Object.fromEntries(
-        [...vote.votersByMeme.entries()].map(([memeIndex, values]) => [memeIndex, [...values]])
+      votersByNumber: Object.fromEntries(
+        [...vote.votersByNumber.entries()].map(([number, values]) => [number, [...values]])
       ),
     };
   }
 
   function deserializeVote(data) {
-    const memes = normalizeMemes(data);
-    if (memes.length < 2) {
-      return null;
+    const votersByNumber = new Map();
+    for (let i = 1; i <= data.maxNumber; i += 1) {
+      votersByNumber.set(i, new Set());
     }
 
-    const votersByMeme = new Map(memes.map((meme) => [meme.index, new Set()]));
-
-    for (const [memeIndex, values] of Object.entries(data.votersByMeme || {})) {
-      votersByMeme.set(Number(memeIndex), new Set(values));
+    for (const [number, values] of Object.entries(data.votersByNumber || {})) {
+      votersByNumber.set(Number(number), new Set(values));
     }
 
     const votesByUser = new Map(
@@ -668,9 +581,9 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       startedByUsername: data.startedByUsername,
       createdAt: data.createdAt,
       endAt: data.endAt,
-      memes,
+      maxNumber: data.maxNumber,
       votesByUser,
-      votersByMeme,
+      votersByNumber,
       voteLog: Array.isArray(data.voteLog) ? data.voteLog : [],
       closed: Boolean(data.closed),
       timeoutHandle: null,
@@ -682,106 +595,6 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     handleInteraction,
     getActiveCount: () => activeVoteByGuild.size,
   };
-}
-
-function collectMemeLinks(interaction) {
-  const links = [];
-  for (let i = 1; i <= MAX_MEMES; i += 1) {
-    const value = interaction.options.getString(`meme${i}`);
-    if (!value) {
-      continue;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    links.push(toVxRedditUrl(trimmed));
-  }
-
-  return links;
-}
-
-function toVxRedditUrl(url) {
-  const match = url.match(/^https?:\/\/(?:www\.|old\.|np\.)?reddit\.com(\/.*)$/i);
-  if (!match) {
-    return url;
-  }
-
-  return `https://vxreddit.com${match[1]}`;
-}
-
-function isLikelyHttpUrl(value) {
-  return /^https?:\/\/\S+$/i.test(value);
-}
-
-function buildMemeButtonCustomId(voteId, memeIndex) {
-  return `memevote:${voteId}:${memeIndex}`;
-}
-
-function parseMemeButtonCustomId(customId) {
-  const parts = customId.split(':');
-  if (parts.length < 3 || parts[0] !== 'memevote') {
-    return null;
-  }
-
-  const memeIndex = Number(parts[parts.length - 1]);
-  if (!Number.isInteger(memeIndex) || memeIndex <= 0) {
-    return null;
-  }
-
-  const voteId = parts.slice(1, parts.length - 1).join(':');
-  if (!voteId) {
-    return null;
-  }
-
-  return {
-    voteId,
-    memeIndex,
-  };
-}
-
-function normalizeMemes(data) {
-  if (Array.isArray(data.memes) && data.memes.length > 0) {
-    return data.memes
-      .map((entry, idx) => ({
-        index: Number.isInteger(entry.index) ? entry.index : idx + 1,
-        link: String(entry.link || '').trim(),
-        messageId: entry.messageId || null,
-      }))
-      .filter((entry) => entry.link.length > 0);
-  }
-
-  if (Number.isInteger(data.maxNumber) && data.maxNumber > 0) {
-    return Array.from({ length: data.maxNumber }, (_, idx) => ({
-      index: idx + 1,
-      link: `Meme #${idx + 1}`,
-      messageId: null,
-    }));
-  }
-
-  return [];
-}
-
-function normalizeMemesForHistory(historyEntry) {
-  if (Array.isArray(historyEntry.memes) && historyEntry.memes.length > 0) {
-    return historyEntry.memes
-      .map((entry, idx) => ({
-        index: Number.isInteger(entry.index) ? entry.index : idx + 1,
-        link: String(entry.link || '').trim() || `Meme #${idx + 1}`,
-      }))
-      .filter((entry) => entry.index > 0);
-  }
-
-  if (Number.isInteger(historyEntry.maxNumber) && historyEntry.maxNumber > 0) {
-    return Array.from({ length: historyEntry.maxNumber }, (_, idx) => ({
-      index: idx + 1,
-      link: `Meme #${idx + 1}`,
-    }));
-  }
-
-  return [];
 }
 
 module.exports = {

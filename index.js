@@ -154,21 +154,25 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) {
+  if (!interaction.isChatInputCommand() && !interaction.isButton()) {
     return;
   }
 
   try {
+    const voteHandled = await voting.handleInteraction(interaction);
+    if (voteHandled) {
+      return;
+    }
+
+    if (!interaction.isChatInputCommand()) {
+      return;
+    }
+
     if (ENABLE_QUIZ) {
       const quizHandled = await quiz.handleInteraction(interaction);
       if (quizHandled) {
         return;
       }
-    }
-
-    const voteHandled = await voting.handleInteraction(interaction);
-    if (voteHandled) {
-      return;
     }
 
     const echoHandled = await echo.handleInteraction(interaction);

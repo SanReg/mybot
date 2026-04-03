@@ -11,7 +11,7 @@ docker logs -f quizbot
 This bot provides:
 - Quiz mode: `/question name:<text> answer:<text>` by authorized users only.
 - Quiz scoreboard reset: `/reset` by quiz masters only.
-- Voting mode: `/start-vote duration:<minutes> number:<n>` by authorized users only, and `/vote number:<x>` by users with a required role.
+- Voting mode: `/start-vote duration:<hours> meme1:<url> meme2:<url> ...` by authorized users only, with one button per meme for voters.
 - Echo mode: `/echo message:<text>` replies privately and posts the same text to the channel, restricted to allowed user IDs.
 - Lock mode: `/lock` and `/unlock` allow users with configured manager roles to lock or unlock one configured channel for one configured role.
 - BTC mode: `/btc` fetches current BTC/USD price and displays it in an embed.
@@ -32,11 +32,13 @@ This bot provides:
 
 2. Vote bot
 - Only IDs in `VOTE_STARTER_IDS` can run `/start-vote`.
-- Vote range is `1..n` where `n` is the `number` argument.
-- Only users with role `VOTER_ROLE_ID` can run `/vote`.
-- Each participant can vote exactly 3 times, and all 3 must be different valid numbers.
-- Username and number for each vote are recorded in memory.
-- `/vote-results` shows current standings.
+- Vote starter supplies meme links (`meme1`, `meme2`, ... up to `meme10`).
+- Bot posts one normal message per meme, each with one vote button for that meme.
+- Reddit links are automatically converted to `https://vxreddit.com/...` for better media preview.
+- Only users with role `VOTER_ROLE_ID` can vote using buttons.
+- Each participant can vote exactly 3 times, and all 3 must be for different memes.
+- Username and meme choice for each vote are recorded in memory.
+- `/vote-results` and `/vote-details` remain private to vote starters.
 
 3. Echo bot
 - `/echo message:<text>` sends a private confirmation and repeats the same message publicly in the same channel.
@@ -198,6 +200,7 @@ Returns JSON like:
 
 - Data is currently in-memory (resets on restart).
 - Code is split into `quiz.js`, `voting.js`, `echo.js`, `lock.js`, `btcprice.js`, and `status.js`, wired by `index.js`.
+- Previous numeric vote implementation is backed up in `voting.rollback.js` for rollback.
 - Slash commands are always registered globally so they work in every guild where the bot is installed.
 - If `GUILD_IDS` or `GUILD_ID` is set, the bot also tries a fast test-guild sync for those IDs.
 - Invalid test guild IDs are skipped with a warning and no longer crash bot startup.
