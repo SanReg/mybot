@@ -13,6 +13,9 @@ This bot provides:
 - Quiz scoreboard reset: `/reset` by quiz masters only.
 - Voting mode: `/start-vote duration:<minutes> number:<n>` by authorized users only, and `/vote number:<x>` by users with a required role.
 - Echo mode: `/echo message:<text>` replies privately and posts the same text to the channel, restricted to allowed user IDs.
+- Lock mode: `/lock` and `/unlock` allow users with configured manager roles to lock or unlock one configured channel for one configured role.
+- BTC mode: `/btc` fetches current BTC/USD price and displays it in an embed.
+- Activity status mode: a dedicated status loop fetches BTC/USD every 60 seconds and updates bot status to watch the current BTC price.
 - Health endpoint: `GET /health` on `PORT` (default `3000`).
 
 ## Features implemented
@@ -38,6 +41,19 @@ This bot provides:
 3. Echo bot
 - `/echo message:<text>` sends a private confirmation and repeats the same message publicly in the same channel.
 - Only users listed in `ECHO_MASTER_IDS` can use `/echo`.
+
+4. Lock bot
+- `/lock` updates channel permissions so users with role `LOCKED_ROLE_ID` cannot send messages in `LOCK_CHANNEL_ID`.
+- `/unlock` explicitly allows `LOCKED_ROLE_ID` to send messages in `LOCK_CHANNEL_ID`.
+- Only members with at least one role from `LOCK_MANAGER_ROLE_IDS` can run `/lock`.
+- Only members with at least one role from `LOCK_MANAGER_ROLE_IDS` can run `/unlock`.
+- Both commands post an embed message in `LOCK_CHANNEL_ID` showing who triggered the action.
+- The command is registered only when all lock env values are configured.
+
+5. BTC price bot
+- `/btc` fetches the latest BTC/USD quote from `https://api.addslice.com/v1/quotes/BTC/USD`.
+- Displays `data.rate` in an embed with requester details.
+- Also shows `1000 slices = <sats>` in the same embed.
 
 ## Setup
 
@@ -67,6 +83,9 @@ QUIZ_MASTER_IDS=111111111111111111,222222222222222222
 VOTE_STARTER_IDS=111111111111111111,333333333333333333
 VOTER_ROLE_ID=444444444444444444
 ECHO_MASTER_IDS=111111111111111111,222222222222222222
+LOCK_MANAGER_ROLE_IDS=555555555555555555,666666666666666666
+LOCK_CHANNEL_ID=777777777777777777
+LOCKED_ROLE_ID=888888888888888888
 QUIZ_TIMEOUT_SECONDS=600
 ENABLE_QUIZ=false
 ```
@@ -178,7 +197,7 @@ Returns JSON like:
 ## Notes
 
 - Data is currently in-memory (resets on restart).
-- Code is split into `quiz.js` and `voting.js`, wired by `index.js`.
+- Code is split into `quiz.js`, `voting.js`, `echo.js`, `lock.js`, `btcprice.js`, and `status.js`, wired by `index.js`.
 - Slash commands are always registered globally so they work in every guild where the bot is installed.
 - If `GUILD_IDS` or `GUILD_ID` is set, the bot also tries a fast test-guild sync for those IDs.
 - Invalid test guild IDs are skipped with a warning and no longer crash bot startup.

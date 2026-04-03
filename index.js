@@ -1,10 +1,13 @@
 require('dotenv').config();
 
 const express = require('express');
-const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 const { createQuizModule } = require('./quiz');
 const { createVotingModule } = require('./voting');
 const { createEchoModule } = require('./echo');
+const { createLockModule } = require('./lock');
+const { startActivityStatusLoop } = require('./status');
+const { createBtcPriceModule } = require('./btcprice');
 
 const PORT = Number(process.env.PORT || 3000);
 const HEALTH_SERVER_START_TIMEOUT_MS = Number(process.env.HEALTH_SERVER_START_TIMEOUT_MS || 25000);
@@ -16,6 +19,9 @@ const QUIZ_MASTER_IDS = toIdSet(process.env.QUIZ_MASTER_IDS);
 const VOTE_STARTER_IDS = toIdSet(process.env.VOTE_STARTER_IDS);
 const VOTER_ROLE_ID = process.env.VOTER_ROLE_ID;
 const ECHO_MASTER_IDS = toIdSet(process.env.ECHO_MASTER_IDS);
+const LOCK_MANAGER_ROLE_IDS = toIdSet(process.env.LOCK_MANAGER_ROLE_IDS);
+const LOCK_CHANNEL_ID = process.env.LOCK_CHANNEL_ID;
+const LOCKED_ROLE_ID = process.env.LOCKED_ROLE_ID;
 const QUIZ_TIMEOUT_SECONDS = Number(process.env.QUIZ_TIMEOUT_SECONDS || 600);
 const ENABLE_QUIZ = process.env.ENABLE_QUIZ === 'true';
 
@@ -40,6 +46,14 @@ const voting = createVotingModule({
 const echo = createEchoModule({
   echoMasterIds: ECHO_MASTER_IDS,
 });
+
+const lock = createLockModule({
+  lockManagerRoleIds: LOCK_MANAGER_ROLE_IDS,
+  lockChannelId: LOCK_CHANNEL_ID,
+  lockedOutRoleId: LOCKED_ROLE_ID,
+});
+
+const btcPrice = createBtcPriceModule();
 
 const client = new Client({
   intents: [
@@ -102,15 +116,14 @@ client.once('clientReady', async () => {
   lastDiscordLoginError = null;
   console.log(`Discord bot logged in as ${client.user.tag}`);
 
-  client.user.setPresence({
-    activities: [{ name: 'Earning Slices...', type: ActivityType.Playing }],
-    status: 'online',
-  });
+  startActivityStatusLoop({ client });
 
   const commands = [
     ...(ENABLE_QUIZ ? quiz.buildCommands() : []),
     ...voting.buildCommands(),
     ...echo.buildCommands(),
+    ...lock.buildCommands(),
+    ...btcPrice.buildCommands(),
   ].map((c) => c.toJSON());
 
   // Always register globally so commands work in every guild where the bot is installed.
@@ -160,6 +173,16 @@ client.on('interactionCreate', async (interaction) => {
 
     const echoHandled = await echo.handleInteraction(interaction);
     if (echoHandled) {
+      return;
+    }
+
+    const lockHandled = await lock.handleInteraction(interaction);
+    if (lockHandled) {
+      return;
+    }
+
+    const btcHandled = await btcPrice.handleInteraction(interaction);
+    if (btcHandled) {
       return;
     }
   } catch (error) {
