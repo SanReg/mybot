@@ -1,5 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 
+const ECHO_AUDIT_CHANNEL_ID = '933715343199838328';
+
 function createEchoModule({ echoMasterIds }) {
   const allowedUserIds = echoMasterIds || new Set();
 
@@ -64,6 +66,25 @@ function createEchoModule({ echoMasterIds }) {
       content: 'Echo posted.',
       flags: 64,
     });
+
+    await logToAuditChannel(
+      interaction.client,
+      ECHO_AUDIT_CHANNEL_ID,
+      `[ECHO_SUCCESS] user=${interaction.user.tag} (${interaction.user.id}) guild=${interaction.guildId} channel=${interaction.channelId} message=${JSON.stringify(message)}`
+    );
+  }
+
+  async function logToAuditChannel(client, channelId, content) {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !channel.isTextBased()) {
+        return;
+      }
+
+      await channel.send({ content });
+    } catch (error) {
+      console.error(`Failed to send echo audit log to channel ${channelId}:`, error);
+    }
   }
 
   return {
