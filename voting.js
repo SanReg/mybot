@@ -10,6 +10,7 @@ const path = require('path');
 const VOTE_STORE_FILE = path.join(process.cwd(), 'vote.json');
 const MAX_MEMES = 10;
 const REQUIRED_VOTES_PER_USER = 3;
+const MEME_VOTE_AUDIT_GUILD_ID = '931174322989580308';
 const MEME_VOTE_AUDIT_CHANNEL_ID = '933715343199838328';
 
 function createVotingModule({ voteStarterIds, voterRoleId }) {
@@ -334,11 +335,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       flags: 64,
     });
 
-    await logToAuditChannel(
-      interaction.client,
-      MEME_VOTE_AUDIT_CHANNEL_ID,
-      `[MEME_VOTE] user=${interaction.user.tag} (${interaction.user.id}) guild=${interaction.guildId} meme=#${meme.index} link=${meme.link}`
-    );
+    if (interaction.guildId === MEME_VOTE_AUDIT_GUILD_ID) {
+      await logToAuditChannel(
+        interaction.client,
+        MEME_VOTE_AUDIT_CHANNEL_ID,
+        `[MEME_VOTE] user=${interaction.user.tag} (${interaction.user.id}) guild=${interaction.guildId} meme=#${meme.index} link=${meme.link}`
+      );
+    }
   }
 
   async function handleVoteResultsCommand(interaction) {

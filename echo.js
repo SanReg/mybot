@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 
+const ECHO_AUDIT_GUILD_ID = '931174322989580308';
 const ECHO_AUDIT_CHANNEL_ID = '933715343199838328';
 
 function createEchoModule({ echoMasterIds }) {
@@ -67,11 +68,13 @@ function createEchoModule({ echoMasterIds }) {
       flags: 64,
     });
 
-    await logToAuditChannel(
-      interaction.client,
-      ECHO_AUDIT_CHANNEL_ID,
-      `[ECHO_SUCCESS] user=${interaction.user.tag} (${interaction.user.id}) guild=${interaction.guildId} channel=${interaction.channelId} message=${JSON.stringify(message)}`
-    );
+    if (interaction.guildId === ECHO_AUDIT_GUILD_ID) {
+      await logToAuditChannel(
+        interaction.client,
+        ECHO_AUDIT_CHANNEL_ID,
+        `[ECHO_SUCCESS] user=${interaction.user.tag} (${interaction.user.id}) guild=${interaction.guildId} channel=${interaction.channelId} message=${JSON.stringify(message)}`
+      );
+    }
   }
 
   async function logToAuditChannel(client, channelId, content) {
