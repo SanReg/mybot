@@ -165,8 +165,10 @@ function formatDiscordMessage(item) {
 function transformLink(link) {
   if (!link || typeof link !== 'string') return '';
 
-  // Replace common reddit host variants with vxreddit.com for better media preview.
-  return link.replace(/:\/\/(?:www\.|old\.|m\.)?reddit\.com/i, '://vxreddit.com');
+  // Normalize reddit and vxreddit hosts to www.vxreddit.com for better media preview.
+  return link
+    .replace(/:\/\/(?:www\.|old\.|m\.)?reddit\.com/i, '://www.vxreddit.com')
+    .replace(/:\/\/(?:www\.)?vxreddit\.com/i, '://www.vxreddit.com');
 }
 
 function pruneMemory({ postedMemory, memoryTtlMs, nowMs }) {
