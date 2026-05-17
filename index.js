@@ -9,6 +9,7 @@ const { createLockModule } = require('./lock');
 const { startActivityStatusLoop } = require('./status');
 const { createBtcPriceModule } = require('./btcprice');
 const { startRedditRelayLoop, createRedditModule } = require('./reddit');
+const { startRedditArtRelayLoop, createRedditArtModule } = require('./reddit-art');
 
 const PORT = Number(process.env.PORT || 3000);
 const HEALTH_SERVER_START_TIMEOUT_MS = Number(process.env.HEALTH_SERVER_START_TIMEOUT_MS || 25000);
@@ -30,6 +31,9 @@ const REDDIT_CHANNEL_ID = process.env.REDDIT_CHANNEL_ID || '931635666922651719';
 const REDDIT_POLL_SECONDS = Number(process.env.REDDIT_POLL_SECONDS || 60);
 const REDDIT_MAX_POST_AGE_MINUTES = Number(process.env.REDDIT_MAX_POST_AGE_MINUTES || 15);
 const REDDIT_MEMORY_TTL_MINUTES = Number(process.env.REDDIT_MEMORY_TTL_MINUTES || 20);
+const REDDIT_ART_FEED_URL = process.env.REDDIT_ART_FEED_URL || 'https://www.reddit.com/r/Ecils_Art_Submissions/new/.rss';
+const REDDIT_ART_CHANNEL_ID = process.env.REDDIT_ART_CHANNEL_ID || '1505542489413648435';
+const REDDIT_ART_POLL_SECONDS = Number(process.env.REDDIT_ART_POLL_SECONDS || REDDIT_POLL_SECONDS);
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   throw new Error('Missing DISCORD_TOKEN or CLIENT_ID in environment variables.');
@@ -64,6 +68,12 @@ const redditModule = createRedditModule({
   allowedStarterIds: VOTE_STARTER_IDS,
   feedUrl: REDDIT_FEED_URL,
   channelId: REDDIT_CHANNEL_ID,
+});
+
+const redditArtModule = createRedditArtModule({
+  allowedStarterIds: VOTE_STARTER_IDS,
+  feedUrl: REDDIT_ART_FEED_URL,
+  channelId: REDDIT_ART_CHANNEL_ID,
 });
 
 const client = new Client({
@@ -137,6 +147,15 @@ client.once('clientReady', async () => {
     memoryTtlMs: Math.max(1, REDDIT_MEMORY_TTL_MINUTES) * 60 * 1000,
   });
 
+  startRedditArtRelayLoop({
+    client,
+    channelId: REDDIT_ART_CHANNEL_ID,
+    feedUrl: REDDIT_ART_FEED_URL,
+    pollIntervalMs: Math.max(15, REDDIT_ART_POLL_SECONDS) * 1000,
+    maxPostAgeMs: Math.max(1, REDDIT_MAX_POST_AGE_MINUTES) * 60 * 1000,
+    memoryTtlMs: Math.max(1, REDDIT_MEMORY_TTL_MINUTES) * 60 * 1000,
+  });
+
   const commands = [
     ...(ENABLE_QUIZ ? quiz.buildCommands() : []),
     ...voting.buildCommands(),
@@ -144,6 +163,7 @@ client.once('clientReady', async () => {
     ...lock.buildCommands(),
     ...btcPrice.buildCommands(),
     ...redditModule.buildCommands(),
+    ...redditArtModule.buildCommands(),
   ].map((c) => c.toJSON());
 
   // Always register globally so commands work in every guild where the bot is installed.
@@ -202,6 +222,11 @@ client.on('interactionCreate', async (interaction) => {
 
     const redditHandled = await redditModule.handleInteraction(interaction);
     if (redditHandled) {
+      return;
+    }
+
+    const redditArtHandled = await redditArtModule.handleInteraction(interaction);
+    if (redditArtHandled) {
       return;
     }
 
