@@ -8,6 +8,7 @@ const { createEchoModule } = require('./echo');
 const { createLockModule } = require('./lock');
 const { startActivityStatusLoop } = require('./status');
 const { createBtcPriceModule } = require('./btcprice');
+const { startRedditRelayLoop, createRedditModule } = require('./reddit');
 
 const PORT = Number(process.env.PORT || 3000);
 const HEALTH_SERVER_START_TIMEOUT_MS = Number(process.env.HEALTH_SERVER_START_TIMEOUT_MS || 25000);
@@ -24,6 +25,11 @@ const LOCK_CHANNEL_ID = process.env.LOCK_CHANNEL_ID;
 const LOCKED_ROLE_ID = process.env.LOCKED_ROLE_ID;
 const QUIZ_TIMEOUT_SECONDS = Number(process.env.QUIZ_TIMEOUT_SECONDS || 600);
 const ENABLE_QUIZ = process.env.ENABLE_QUIZ === 'true';
+const REDDIT_FEED_URL = process.env.REDDIT_FEED_URL || 'https://www.reddit.com/r/ecils/new/.rss';
+const REDDIT_CHANNEL_ID = process.env.REDDIT_CHANNEL_ID || '931635666922651719';
+const REDDIT_POLL_SECONDS = Number(process.env.REDDIT_POLL_SECONDS || 60);
+const REDDIT_MAX_POST_AGE_MINUTES = Number(process.env.REDDIT_MAX_POST_AGE_MINUTES || 15);
+const REDDIT_MEMORY_TTL_MINUTES = Number(process.env.REDDIT_MEMORY_TTL_MINUTES || 20);
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   throw new Error('Missing DISCORD_TOKEN or CLIENT_ID in environment variables.');
@@ -54,6 +60,11 @@ const lock = createLockModule({
 });
 
 const btcPrice = createBtcPriceModule();
+const redditModule = createRedditModule({
+  allowedStarterIds: VOTE_STARTER_IDS,
+  feedUrl: REDDIT_FEED_URL,
+  channelId: REDDIT_CHANNEL_ID,
+});
 
 const client = new Client({
   intents: [
@@ -117,6 +128,14 @@ client.once('clientReady', async () => {
   console.log(`Discord bot logged in as ${client.user.tag}`);
 
   startActivityStatusLoop({ client });
+  startRedditRelayLoop({
+    client,
+    channelId: REDDIT_CHANNEL_ID,
+    feedUrl: REDDIT_FEED_URL,
+    pollIntervalMs: Math.max(15, REDDIT_POLL_SECONDS) * 1000,
+    maxPostAgeMs: Math.max(1, REDDIT_MAX_POST_AGE_MINUTES) * 60 * 1000,
+    memoryTtlMs: Math.max(1, REDDIT_MEMORY_TTL_MINUTES) * 60 * 1000,
+  });
 
   const commands = [
     ...(ENABLE_QUIZ ? quiz.buildCommands() : []),
@@ -124,6 +143,7 @@ client.once('clientReady', async () => {
     ...echo.buildCommands(),
     ...lock.buildCommands(),
     ...btcPrice.buildCommands(),
+    ...redditModule.buildCommands(),
   ].map((c) => c.toJSON());
 
   // Always register globally so commands work in every guild where the bot is installed.
@@ -177,6 +197,11 @@ client.on('interactionCreate', async (interaction) => {
 
     const echoHandled = await echo.handleInteraction(interaction);
     if (echoHandled) {
+      return;
+    }
+
+    const redditHandled = await redditModule.handleInteraction(interaction);
+    if (redditHandled) {
       return;
     }
 
