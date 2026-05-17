@@ -16,6 +16,7 @@ This bot provides:
 - Lock mode: `/lock` and `/unlock` allow users with configured manager roles to lock or unlock one configured channel for one configured role.
 - BTC mode: `/btc` fetches current BTC/USD price and displays it in an embed.
 - Activity status mode: a dedicated status loop fetches BTC/USD every 60 seconds and updates bot status to watch the current BTC price.
+- Reddit relay mode: polls `https://www.reddit.com/r/ecils/new/.rss` every 60 seconds and posts new items into one configured Discord channel.
 - Health endpoint: `GET /health` on `PORT` (default `3000`).
 
 ## Features implemented
@@ -58,6 +59,12 @@ This bot provides:
 - Displays `data.rate` in an embed with requester details.
 - Also shows `1000 slices = <sats>` in the same embed.
 
+6. Reddit relay bot
+- Polls `REDDIT_FEED_URL` every `REDDIT_POLL_SECONDS` (default: 60s).
+- Posts only unseen feed items to `REDDIT_CHANNEL_ID`, in chronological order.
+- Ignores posts older than `REDDIT_MAX_POST_AGE_MINUTES` (default: 15 minutes).
+- Keeps posted IDs in memory and removes entries older than `REDDIT_MEMORY_TTL_MINUTES` (default: 20 minutes).
+
 ## Setup
 
 1. Create a Discord bot in the Discord Developer Portal.
@@ -91,6 +98,11 @@ LOCK_CHANNEL_ID=777777777777777777
 LOCKED_ROLE_ID=888888888888888888
 QUIZ_TIMEOUT_SECONDS=600
 ENABLE_QUIZ=false
+REDDIT_FEED_URL=https://www.reddit.com/r/ecils/new/.rss
+REDDIT_CHANNEL_ID=931635666922651719
+REDDIT_POLL_SECONDS=60
+REDDIT_MAX_POST_AGE_MINUTES=15
+REDDIT_MEMORY_TTL_MINUTES=20
 ```
 
 `ENABLE_QUIZ=false` disables all quiz commands and quiz message handling.
