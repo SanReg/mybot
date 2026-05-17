@@ -1,5 +1,90 @@
 {
   "version": 2,
   "activeVotesByGuild": {},
-  "voteHistoryByGuild": {}
+  "voteHistoryByGuild": {
+    "931174322989580308": [
+      {
+        "id": "931174322989580308-1779021985644",
+        "guildId": "931174322989580308",
+        "startChannelId": "1130239536568471603",
+        "startedById": "870144657865191455",
+        "startedByUsername": "mathslover",
+        "createdAt": 1779021985644,
+        "closedAt": 1779022243793,
+        "endAt": 1779025585644,
+        "memes": [
+          {
+            "index": 1,
+            "link": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1sx6qko/cats/",
+            "messageId": "1505552087713579100"
+          },
+          {
+            "index": 2,
+            "link": "https://www.vxreddit.com/r/Ecils_Art_Submissions/comments/1swu7fw/even_alien_enjoy_slice_app/",
+            "messageId": "1505552089663799357"
+          }
+        ],
+        "type": "art",
+        "voteLog": [
+          {
+            "userId": "870144657865191455",
+            "username": "mathslover",
+            "memeIndex": 1,
+            "memeLink": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1sx6qko/cats/",
+            "votedAt": 1779022014165,
+            "source": "button"
+          }
+        ]
+      },
+      {
+        "id": "931174322989580308-1779022452833",
+        "guildId": "931174322989580308",
+        "startChannelId": "1505542489413648435",
+        "startedById": "870144657865191455",
+        "startedByUsername": "mathslover",
+        "createdAt": 1779022452833,
+        "closedAt": 1779022590526,
+        "endAt": 1779026052833,
+        "memes": [
+          {
+            "index": 1,
+            "link": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1tfoppf/art/",
+            "messageId": "1505554046466129920"
+          },
+          {
+            "index": 2,
+            "link": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1tfoo8g/test/",
+            "messageId": "1505554048781123635"
+          }
+        ],
+        "type": "art",
+        "voteLog": [
+          {
+            "userId": "1194992331057795153",
+            "username": "zennyidk",
+            "memeIndex": 2,
+            "memeLink": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1tfoo8g/test/",
+            "votedAt": 1779022466258,
+            "source": "button"
+          },
+          {
+            "userId": "1194992331057795153",
+            "username": "zennyidk",
+            "memeIndex": 1,
+            "memeLink": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1tfoppf/art/",
+            "votedAt": 1779022476347,
+            "source": "button"
+          },
+          {
+            "userId": "948208067886063627",
+            "username": "vcreator",
+            "memeIndex": 2,
+            "memeLink": "https://vxreddit.com/r/Ecils_Art_Submissions/comments/1tfoo8g/test/",
+            "votedAt": 1779022508713,
+            "source": "button"
+          }
+        ]
+      }
+    ]
+  }
 }
