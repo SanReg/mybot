@@ -785,12 +785,18 @@ function collectMemeLinks(interaction) {
 }
 
 function toVxRedditUrl(url) {
-  const match = url.match(/^https?:\/\/(?:www\.|old\.|np\.)?reddit\.com(\/.*)$/i);
-  if (!match) {
-    return url;
+  const redditMatch = url.match(/^https?:\/\/(?:www\.|old\.|np\.)?reddit\.com(\/.*)$/i);
+  if (redditMatch) {
+    return `https://www.vxreddit.com${redditMatch[1]}`;
   }
 
-  return `https://vxreddit.com${match[1]}`;
+  // If it's already a vxreddit URL without www, add www. Keep existing www.
+  const vxMatch = url.match(/^https?:\/\/(?:www\.)?vxreddit\.com(\/.*)$/i);
+  if (vxMatch) {
+    return `https://www.vxreddit.com${vxMatch[1]}`;
+  }
+
+  return url;
 }
 
 function isLikelyHttpUrl(value) {

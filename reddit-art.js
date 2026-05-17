@@ -150,7 +150,9 @@ function formatDiscordMessage(item) {
 
 function transformLink(link) {
   if (!link || typeof link !== 'string') return '';
-  return link.replace(/:\/\/(?:www\.|old\.|m\.)?reddit\.com/i, '://vxreddit.com');
+  return link
+    .replace(/:\/\/(?:www\.|old\.|m\.)?reddit\.com/i, '://www.vxreddit.com')
+    .replace(/:\/\/(?:www\.)?vxreddit\.com/i, '://www.vxreddit.com');
 }
 
 function pruneMemory({ postedMemory, memoryTtlMs, nowMs }) {

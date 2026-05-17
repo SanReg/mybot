@@ -36,7 +36,7 @@ This bot provides:
 - Only IDs in `VOTE_STARTER_IDS` can run `/end-vote` to close the active vote immediately.
 - Vote starter supplies meme links (`meme1`, `meme2`, ... up to `meme10`).
 - Bot posts one normal message per meme, each with one vote button for that meme.
-- Reddit links are automatically converted to `https://vxreddit.com/...` for better media preview.
+- Reddit links are automatically converted to `https://www.vxreddit.com/...` for better media preview.
 - Only users with role `VOTER_ROLE_ID` can vote using buttons.
 - Each participant can vote exactly 3 times, and all 3 must be for different memes.
 - Username and meme choice for each vote are recorded in memory.

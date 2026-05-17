@@ -84,6 +84,108 @@
             "source": "button"
           }
         ]
+      },
+      {
+        "id": "931174322989580308-1779036818841",
+        "guildId": "931174322989580308",
+        "startChannelId": "1130239536568471603",
+        "startedById": "870144657865191455",
+        "startedByUsername": "mathslover",
+        "createdAt": 1779036818841,
+        "closedAt": 1779036957896,
+        "endAt": 1779040418841,
+        "memes": [
+          {
+            "index": 1,
+            "link": "https://vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614292475580495"
+          },
+          {
+            "index": 2,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614294421864590"
+          },
+          {
+            "index": 3,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614296082550926"
+          },
+          {
+            "index": 4,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614298393874452"
+          }
+        ],
+        "type": "meme",
+        "voteLog": []
+      },
+      {
+        "id": "931174322989580308-1779036965035",
+        "guildId": "931174322989580308",
+        "startChannelId": "1130239536568471603",
+        "startedById": "870144657865191455",
+        "startedByUsername": "mathslover",
+        "createdAt": 1779036965035,
+        "closedAt": 1779036977318,
+        "endAt": 1779040565035,
+        "memes": [
+          {
+            "index": 1,
+            "link": "https://vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614905921765376"
+          },
+          {
+            "index": 2,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614914788659425"
+          },
+          {
+            "index": 3,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614916776755302"
+          },
+          {
+            "index": 4,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505614919188480051"
+          }
+        ],
+        "type": "meme",
+        "voteLog": []
+      },
+      {
+        "id": "931174322989580308-1779036995807",
+        "guildId": "931174322989580308",
+        "startChannelId": "1130239536568471603",
+        "startedById": "870144657865191455",
+        "startedByUsername": "mathslover",
+        "createdAt": 1779036995807,
+        "closedAt": 1779037052326,
+        "endAt": 1779040595807,
+        "memes": [
+          {
+            "index": 1,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505615034980765716"
+          },
+          {
+            "index": 2,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505615036805287996"
+          },
+          {
+            "index": 3,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505615038805704907"
+          },
+          {
+            "index": 4,
+            "link": "https://www.vxreddit.com/r/ecils/comments/1tfjsoz/when_you_find_out_bro_voted_for_the_slop_over/",
+            "messageId": "1505615040558927934"
+          }
+        ],
+        "type": "meme",
+        "voteLog": []
       }
     ]
   }
