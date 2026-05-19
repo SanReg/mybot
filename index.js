@@ -12,13 +12,15 @@ const {
   MessageFlags,
 } = require('discord.js');
 const dotenv = require('dotenv');
+
+dotenv.config();
+
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const bolt11 = require('bolt11');
 const { setBotStatus } = require('./status');
+const { handleTipMessage } = require('./other');
 const { adminCommand, userStatsCommand, changeStatusCommand, handleAdminCommand, handleAdminWithdrawalsButton, handleUserStatsCommand, handleChangeStatusCommand } = require('./admin');
-
-dotenv.config();
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -572,7 +574,12 @@ async function sendDm(user, content) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 client.once('clientReady', async () => {
@@ -967,6 +974,11 @@ client.on('interactionCreate', async (interaction) => {
         listLines.push(`<:slice:1501114342631014480> ... and ${remaining} more users`);
       }
 
+      const otherRecipientNames = recipients.slice(10).map((recipient) => recipient.username);
+      const footerText = otherRecipientNames.length
+        ? truncateText(`Other users rained are: ${otherRecipientNames.join(', ')}`, 200)
+        : null;
+
       const embed = new EmbedBuilder()
         .setColor(0x8e44ad)
         .setDescription(
@@ -983,6 +995,10 @@ client.on('interactionCreate', async (interaction) => {
             listLines.join('\n'),
           ].join('\n')
         );
+
+      if (footerText) {
+        embed.setFooter({ text: footerText });
+      }
 
       await safeEditReply(interaction, { embeds: [embed] });
 
@@ -1154,6 +1170,7 @@ client.on('interactionCreate', async (interaction) => {
         '**/link address** — Link a Lightning address (name@domain)',
         '**/withdraw amount** — Withdraw to your linked Lightning address',
         '**/pay payreq** — Pay a Lightning invoice from your balance',
+        '**$tip <@user> [<@user>...] <amount>** — Tip multiple users from your balance (public)',
         '**/tip user amount** — Tip a user from your balance (public)',
         '**/rain amount maxcount** — Rain sats on recent users in a channel',
         '**/leaderboard type** — Top makers or catchers',
@@ -1369,6 +1386,15 @@ client.on('interactionCreate', async (interaction) => {
         console.error('Failed to send change status error response:', responseError.message);
       }
     }
+  }
+});
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  try {
+    await handleTipMessage(message);
+  } catch (error) {
+    console.error('Prefix tip message handler failed:', error.message);
   }
 });
 
