@@ -4,21 +4,294 @@ const {
   ButtonBuilder,
   ButtonStyle,
 } = require('discord.js');
-const fs = require('fs');
 const path = require('path');
+const { DatabaseSync } = require('node:sqlite');
 
-const VOTE_STORE_FILE = path.join(process.cwd(), 'vote.json');
+const DB_FILE = path.join(process.cwd(), 'vote.db');
 const MAX_MEMES = 10;
 const REQUIRED_VOTES_PER_USER = 3;
 const MEME_VOTE_AUDIT_GUILD_ID = '931174322989580308';
 const MEME_VOTE_AUDIT_CHANNEL_ID = '933715343199838328';
+const VOTE_TYPES = ['meme', 'art'];
+
+function normalizeVoteType(rawType) {
+  return String(rawType || '').toLowerCase() === 'art' ? 'art' : 'meme';
+}
+
+function activeKey(guildId, type) {
+  return `${guildId}:${type}`;
+}
 
 function createVotingModule({ voteStarterIds, voterRoleId }) {
-  const activeVoteByGuild = new Map();
-  const voteHistoryByGuild = new Map();
+  // Active votes are keyed by `${guildId}:${type}` so a meme round and an art
+  // round can run concurrently in the same guild.
+  const activeVotes = new Map();
 
-  loadPersistentState();
-  restoreActiveVoteTimeouts();
+  const db = openDatabase();
+  loadActiveVotes();
+
+  // -------------------------------------------------------------------------
+  // SQLite layer
+  // -------------------------------------------------------------------------
+
+  function openDatabase() {
+    const database = new DatabaseSync(DB_FILE);
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS votes (
+        id TEXT PRIMARY KEY,
+        guild_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        start_channel_id TEXT,
+        started_by_id TEXT,
+        started_by_username TEXT,
+        created_at INTEGER NOT NULL,
+        end_at INTEGER NOT NULL,
+        closed INTEGER NOT NULL DEFAULT 0,
+        closed_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS vote_memes (
+        vote_id TEXT NOT NULL,
+        idx INTEGER NOT NULL,
+        link TEXT NOT NULL,
+        message_id TEXT,
+        PRIMARY KEY (vote_id, idx)
+      );
+      CREATE TABLE IF NOT EXISTS vote_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vote_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT,
+        meme_index INTEGER NOT NULL,
+        meme_link TEXT,
+        voted_at INTEGER NOT NULL,
+        source TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_vote_log_vote ON vote_log (vote_id);
+      CREATE INDEX IF NOT EXISTS idx_votes_lookup ON votes (guild_id, type, closed);
+    `);
+    return database;
+  }
+
+  function persistVoteRow(vote) {
+    db.prepare(
+      `INSERT INTO votes
+         (id, guild_id, type, start_channel_id, started_by_id, started_by_username,
+          created_at, end_at, closed, closed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         start_channel_id = excluded.start_channel_id,
+         end_at = excluded.end_at,
+         closed = excluded.closed,
+         closed_at = excluded.closed_at`
+    ).run(
+      vote.id,
+      vote.guildId,
+      vote.type,
+      vote.startChannelId || null,
+      vote.startedById || null,
+      vote.startedByUsername || null,
+      vote.createdAt,
+      vote.endAt,
+      vote.closed ? 1 : 0,
+      vote.closedAt || null
+    );
+
+    const upsertMeme = db.prepare(
+      `INSERT INTO vote_memes (vote_id, idx, link, message_id)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(vote_id, idx) DO UPDATE SET
+         link = excluded.link,
+         message_id = excluded.message_id`
+    );
+    for (const meme of vote.memes) {
+      upsertMeme.run(vote.id, meme.index, meme.link, meme.messageId || null);
+    }
+  }
+
+  function appendVoteLog(voteId, entry) {
+    db.prepare(
+      `INSERT INTO vote_log (vote_id, user_id, username, meme_index, meme_link, voted_at, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      voteId,
+      entry.userId,
+      entry.username || null,
+      entry.memeIndex,
+      entry.memeLink || null,
+      entry.votedAt,
+      entry.source || null
+    );
+  }
+
+  function markVoteClosed(voteId, closedAt) {
+    db.prepare(`UPDATE votes SET closed = 1, closed_at = ? WHERE id = ?`).run(closedAt, voteId);
+  }
+
+  function readMemes(voteId) {
+    const rows = db
+      .prepare(`SELECT idx, link, message_id FROM vote_memes WHERE vote_id = ? ORDER BY idx ASC`)
+      .all(voteId);
+    return rows.map((row) => ({
+      index: Number(row.idx),
+      link: String(row.link || ''),
+      messageId: row.message_id || null,
+    }));
+  }
+
+  function readVoteLog(voteId) {
+    const rows = db
+      .prepare(
+        `SELECT user_id, username, meme_index, meme_link, voted_at, source
+         FROM vote_log WHERE vote_id = ? ORDER BY id ASC`
+      )
+      .all(voteId);
+    return rows.map((row) => ({
+      userId: String(row.user_id),
+      username: row.username || 'unknown',
+      memeIndex: Number(row.meme_index),
+      memeLink: row.meme_link || '',
+      votedAt: Number(row.voted_at),
+      source: row.source || null,
+    }));
+  }
+
+  // Rebuild the derived per-user / per-meme tallies from the immutable vote log.
+  function buildTallies(memes, voteLog) {
+    const votersByMeme = new Map(memes.map((meme) => [meme.index, new Set()]));
+    const votesByUser = new Map();
+
+    for (const entry of voteLog) {
+      const memeIndex = entry.memeIndex;
+      if (!Number.isFinite(memeIndex)) {
+        continue;
+      }
+      if (!votersByMeme.has(memeIndex)) {
+        votersByMeme.set(memeIndex, new Set());
+      }
+      votersByMeme.get(memeIndex).add(entry.userId);
+
+      const existing = votesByUser.get(entry.userId) || new Set();
+      existing.add(memeIndex);
+      votesByUser.set(entry.userId, existing);
+    }
+
+    return { votersByMeme, votesByUser };
+  }
+
+  function rowToVote(row) {
+    const memes = readMemes(row.id);
+    const voteLog = readVoteLog(row.id);
+    const { votersByMeme, votesByUser } = buildTallies(memes, voteLog);
+
+    return {
+      id: row.id,
+      guildId: String(row.guild_id),
+      type: normalizeVoteType(row.type),
+      startChannelId: row.start_channel_id || null,
+      startedById: row.started_by_id || null,
+      startedByUsername: row.started_by_username || null,
+      createdAt: Number(row.created_at),
+      endAt: Number(row.end_at),
+      closed: Boolean(row.closed),
+      closedAt: row.closed_at != null ? Number(row.closed_at) : null,
+      memes,
+      voteLog,
+      votersByMeme,
+      votesByUser,
+      timeoutHandle: null,
+    };
+  }
+
+  function loadActiveVotes() {
+    const rows = db.prepare(`SELECT * FROM votes WHERE closed = 0`).all();
+    for (const row of rows) {
+      const vote = rowToVote(row);
+      if (vote.memes.length < 2) {
+        continue;
+      }
+
+      const remainingMs = vote.endAt - Date.now();
+      if (remainingMs <= 0) {
+        // Window already elapsed while the bot was offline; close it out.
+        vote.closed = true;
+        vote.closedAt = Date.now();
+        markVoteClosed(vote.id, vote.closedAt);
+        continue;
+      }
+
+      vote.timeoutHandle = setTimeout(() => {
+        const stored = getActiveVote(vote.guildId, vote.type);
+        if (!stored || stored.id !== vote.id) {
+          return;
+        }
+        stored.closed = true;
+        stored.closedAt = Date.now();
+        markVoteClosed(stored.id, stored.closedAt);
+        activeVotes.delete(activeKey(stored.guildId, stored.type));
+      }, remainingMs);
+
+      activeVotes.set(activeKey(vote.guildId, vote.type), vote);
+    }
+  }
+
+  function getLatestClosedVote(guildId, type) {
+    const row = db
+      .prepare(
+        `SELECT * FROM votes
+         WHERE guild_id = ? AND type = ? AND closed = 1
+         ORDER BY closed_at DESC, created_at DESC
+         LIMIT 1`
+      )
+      .get(guildId, type);
+    return row ? rowToVote(row) : null;
+  }
+
+  // -------------------------------------------------------------------------
+  // In-memory active-vote helpers
+  // -------------------------------------------------------------------------
+
+  function getActiveVote(guildId, type) {
+    const vote = activeVotes.get(activeKey(guildId, type));
+    return vote && !vote.closed ? vote : null;
+  }
+
+  function findActiveVoteById(guildId, voteId) {
+    for (const type of VOTE_TYPES) {
+      const vote = getActiveVote(guildId, type);
+      if (vote && vote.id === voteId) {
+        return vote;
+      }
+    }
+    return null;
+  }
+
+  function getCurrentOrLatestVote(guildId, type) {
+    const active = getActiveVote(guildId, type);
+    if (active) {
+      return { vote: active, isActive: true };
+    }
+
+    const closed = getLatestClosedVote(guildId, type);
+    if (closed) {
+      return { vote: closed, isActive: false };
+    }
+
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Commands
+  // -------------------------------------------------------------------------
+
+  function addTypeOption(command) {
+    return command.addStringOption((option) =>
+      option
+        .setName('type')
+        .setDescription('Which round: Meme or Art')
+        .setRequired(true)
+        .addChoices({ name: 'Meme', value: 'Meme' }, { name: 'Art', value: 'Art' })
+    );
+  }
 
   function buildCommands() {
     return [
@@ -51,18 +324,26 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
         .addStringOption((option) => option.setName('entry8').setDescription('Entry link 8').setMaxLength(1000))
         .addStringOption((option) => option.setName('entry9').setDescription('Entry link 9').setMaxLength(1000))
         .addStringOption((option) => option.setName('entry10').setDescription('Entry link 10').setMaxLength(1000)),
-      new SlashCommandBuilder()
-        .setName('my-votes')
-        .setDescription('Show your submitted meme votes in the active server vote.'),
-      new SlashCommandBuilder()
-        .setName('end-vote')
-        .setDescription('End the active meme vote in this server (vote starters only).'),
-      new SlashCommandBuilder()
-        .setName('vote-results')
-        .setDescription('Show current meme vote standing for this server (vote starters only).'),
-      new SlashCommandBuilder()
-        .setName('vote-details')
-        .setDescription('Show per-user meme vote details for this server (vote starters only).'),
+      addTypeOption(
+        new SlashCommandBuilder()
+          .setName('my-votes')
+          .setDescription('Show your submitted votes in the active art/meme round.')
+      ),
+      addTypeOption(
+        new SlashCommandBuilder()
+          .setName('end-vote')
+          .setDescription('End the active art/meme vote in this server (vote starters only).')
+      ),
+      addTypeOption(
+        new SlashCommandBuilder()
+          .setName('vote-results')
+          .setDescription('Show current art/meme vote standing for this server (vote starters only).')
+      ),
+      addTypeOption(
+        new SlashCommandBuilder()
+          .setName('vote-details')
+          .setDescription('Show per-user art/meme vote details for this server (vote starters only).')
+      ),
     ];
   }
 
@@ -126,17 +407,17 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     }
 
     const guildId = interaction.guildId;
-    const existing = activeVoteByGuild.get(guildId);
-    if (existing && !existing.closed) {
+    const voteType = normalizeVoteType(interaction.options.getString('type'));
+    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
+
+    const existing = getActiveVote(guildId, voteType);
+    if (existing) {
       await interaction.reply({
-        content: 'A vote is already active in this server.',
+        content: `A ${displayLabel} vote is already active in this server.`,
         flags: 64,
       });
       return;
     }
-
-    const rawType = (interaction.options.getString('type') || 'Meme');
-    const voteType = String(rawType).toLowerCase() === 'art' ? 'art' : 'meme';
 
     const links = collectMemeLinks(interaction);
     if (links.length < 2) {
@@ -168,7 +449,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     }));
 
     const vote = {
-      id: `${guildId}-${Date.now()}`,
+      id: `${guildId}-${voteType}-${Date.now()}`,
       guildId,
       startChannelId: interaction.channelId,
       startedById: interaction.user.id,
@@ -181,37 +462,33 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       votersByMeme: new Map(memes.map((m) => [m.index, new Set()])),
       voteLog: [],
       closed: false,
+      closedAt: null,
       timeoutHandle: null,
     };
 
     vote.timeoutHandle = setTimeout(async () => {
       const channel = await interaction.client.channels.fetch(vote.startChannelId).catch(() => null);
       if (channel && channel.isTextBased()) {
-        await closeVote(guildId, channel, 'Voting window finished.');
+        await closeVote(guildId, voteType, channel, 'Voting window finished.');
       } else {
         vote.closed = true;
-        activeVoteByGuild.delete(guildId);
-        saveVoteHistory(guildId, vote);
-        savePersistentState();
+        vote.closedAt = Date.now();
+        activeVotes.delete(activeKey(guildId, voteType));
+        markVoteClosed(vote.id, vote.closedAt);
       }
     }, remainingMs);
 
-    activeVoteByGuild.set(guildId, vote);
-    savePersistentState();
+    activeVotes.set(activeKey(guildId, voteType), vote);
+    persistVoteRow(vote);
 
-    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
     const pluralLabel = voteType === 'art' ? 'art entries' : 'memes';
 
     await interaction.reply({
       content:
-        `${displayLabel} vote started by ${interaction.user}.
-` +
-        `Duration: **${duration} hour(s)**
-` +
-        `Ends on: <t:${endsOnEpochSeconds}:F> (<t:${endsOnEpochSeconds}:R>)
-` +
-        `${displayLabel}s in this round: **${memes.length}**
-` +
+        `${displayLabel} vote started by ${interaction.user}.\n` +
+        `Duration: **${duration} hour(s)**\n` +
+        `Ends on: <t:${endsOnEpochSeconds}:F> (<t:${endsOnEpochSeconds}:R>)\n` +
+        `${displayLabel}s in this round: **${memes.length}**\n` +
         `Eligible users can vote using the buttons below. Each user can vote exactly ${REQUIRED_VOTES_PER_USER} times for different ${pluralLabel}.`,
     });
 
@@ -231,29 +508,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       meme.messageId = posted.id;
     }
 
-    savePersistentState();
+    persistVoteRow(vote);
   }
 
   async function handleMemeVoteButton(interaction) {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'This button can only be used in a server.',
-        flags: 64,
-      });
-      return;
-    }
-
-    if (!interaction.member || !interaction.member.roles || !interaction.member.roles.cache) {
-      await interaction.reply({
-        content: 'Could not validate your server role.',
-        flags: 64,
-      });
-      return;
-    }
-
-    if (!interaction.member.roles.cache.has(voterRoleId)) {
-      await interaction.reply({
-        content: 'You do not have the required role to vote.',
         flags: 64,
       });
       return;
@@ -269,25 +530,17 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     }
 
     const guildId = interaction.guildId;
-    const vote = activeVoteByGuild.get(guildId);
-    if (!vote || vote.closed) {
+    const vote = findActiveVoteById(guildId, parsed.voteId);
+    if (!vote) {
       await interaction.reply({
-        content: 'There is no active vote in this server.',
-        flags: 64,
-      });
-      return;
-    }
-
-    if (parsed.voteId !== vote.id) {
-      await interaction.reply({
-        content: 'This vote button belongs to an older vote round.',
+        content: 'This vote button belongs to an older or already closed vote round.',
         flags: 64,
       });
       return;
     }
 
     if (Date.now() > vote.endAt) {
-      await closeVote(guildId, interaction.channel, 'Voting window finished.');
+      await closeVote(guildId, vote.type, interaction.channel, 'Voting window finished.');
       await interaction.reply({
         content: 'This vote already ended.',
         flags: 64,
@@ -333,16 +586,16 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     votersForMeme.add(interaction.user.id);
     vote.votersByMeme.set(meme.index, votersForMeme);
 
-    vote.voteLog.push({
+    const logEntry = {
       userId: interaction.user.id,
       username: interaction.user.username,
       memeIndex: meme.index,
       memeLink: meme.link,
       votedAt: Date.now(),
       source: 'button',
-    });
-
-    savePersistentState();
+    };
+    vote.voteLog.push(logEntry);
+    appendVoteLog(vote.id, logEntry);
 
     const remaining = REQUIRED_VOTES_PER_USER - userVotes.size;
 
@@ -381,10 +634,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const resolvedVote = getCurrentOrLatestVote(interaction.guildId);
+    const voteType = normalizeVoteType(interaction.options.getString('type'));
+    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
+
+    const resolvedVote = getCurrentOrLatestVote(interaction.guildId, voteType);
     if (!resolvedVote) {
       await interaction.reply({
-        content: 'No vote data found for this server.',
+        content: `No ${displayLabel} vote data found for this server.`,
         flags: 64,
       });
       return;
@@ -398,7 +654,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     });
 
     await interaction.reply({
-      content: `${isActive ? 'Current vote results' : 'Latest closed vote results'}\n${lines.join('\n')}`,
+      content: `${isActive ? `Current ${displayLabel} vote results` : `Latest closed ${displayLabel} vote results`}\n${lines.join('\n')}`,
       flags: 64,
     });
   }
@@ -412,10 +668,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const vote = activeVoteByGuild.get(interaction.guildId);
-    if (!vote || vote.closed) {
+    const voteType = normalizeVoteType(interaction.options.getString('type'));
+    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
+
+    const vote = getActiveVote(interaction.guildId, voteType);
+    if (!vote) {
       await interaction.reply({
-        content: 'There is no active vote in this server.',
+        content: `There is no active ${displayLabel} vote in this server.`,
         flags: 64,
       });
       return;
@@ -431,7 +690,6 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     const remaining = Math.max(0, REQUIRED_VOTES_PER_USER - userVotes.size);
 
-    const displayLabel = vote.type === 'art' ? 'Art' : 'Meme';
     await interaction.reply({
       content:
         `Your ${displayLabel.toLowerCase()} votes:\n${selected.length ? selected.join('\n') : 'none'}\n` +
@@ -459,10 +717,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const resolvedVote = getCurrentOrLatestVote(interaction.guildId);
+    const voteType = normalizeVoteType(interaction.options.getString('type'));
+    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
+
+    const resolvedVote = getCurrentOrLatestVote(interaction.guildId, voteType);
     if (!resolvedVote) {
       await interaction.reply({
-        content: 'No vote data found for this server.',
+        content: `No ${displayLabel} vote data found for this server.`,
         flags: 64,
       });
       return;
@@ -479,10 +740,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
         const votedMemes = [...votesSet]
           .sort((a, b) => a - b)
-          .map((index) => {
-            const meme = vote.memes.find((entry) => entry.index === index);
-            return meme ? `#${index}` : `#${index}`;
-          })
+          .map((index) => `#${index}`)
           .join(', ');
 
         return `- ${latestUsername} (<@${userId}>): ${votesSet.size} vote(s) [${votedMemes || 'none'}]`;
@@ -491,7 +749,7 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     const content =
       details.length > 0
-        ? `${isActive ? 'Vote details (per user)' : 'Latest closed vote details (per user)'}\n${details.join('\n')}`
+        ? `${isActive ? `${displayLabel} vote details (per user)` : `Latest closed ${displayLabel} vote details (per user)`}\n${details.join('\n')}`
         : 'No votes recorded yet.';
 
     await interaction.reply({
@@ -518,10 +776,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       return;
     }
 
-    const vote = activeVoteByGuild.get(interaction.guildId);
-    if (!vote || vote.closed) {
+    const voteType = normalizeVoteType(interaction.options.getString('type'));
+    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
+
+    const vote = getActiveVote(interaction.guildId, voteType);
+    if (!vote) {
       await interaction.reply({
-        content: 'There is no active vote in this server.',
+        content: `There is no active ${displayLabel} vote in this server.`,
         flags: 64,
       });
       return;
@@ -529,238 +790,45 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     await closeVote(
       interaction.guildId,
+      voteType,
       interaction.channel,
-      `Vote ended manually by <@${interaction.user.id}>.`
+      `${displayLabel} vote ended manually by <@${interaction.user.id}>.`
     );
 
     await interaction.reply({
-      content: 'Vote ended successfully.',
+      content: `${displayLabel} vote ended successfully.`,
       flags: 64,
     });
   }
 
-  async function closeVote(guildId, channel, reason) {
-    const vote = activeVoteByGuild.get(guildId);
-    if (!vote || vote.closed) {
+  async function closeVote(guildId, type, channel, reason) {
+    const vote = getActiveVote(guildId, type);
+    if (!vote) {
       return;
     }
 
     vote.closed = true;
-    activeVoteByGuild.delete(guildId);
+    vote.closedAt = Date.now();
+    activeVotes.delete(activeKey(guildId, type));
 
     if (vote.timeoutHandle) {
       clearTimeout(vote.timeoutHandle);
     }
 
-    saveVoteHistory(guildId, vote);
-    savePersistentState();
+    markVoteClosed(vote.id, vote.closedAt);
 
+    const displayLabel = type === 'art' ? 'Art' : 'Meme';
     if (channel && channel.isTextBased()) {
       await channel.send(
-        `${reason}\nVote is now closed. Authorized users can view results privately with /vote-results.`
+        `${reason}\n${displayLabel} vote is now closed. Authorized users can view results privately with /vote-results type:${displayLabel}.`
       );
     }
-  }
-
-  function saveVoteHistory(guildId, vote) {
-    const history = voteHistoryByGuild.get(guildId) || [];
-
-    history.push({
-      id: vote.id,
-      guildId: vote.guildId,
-      startChannelId: vote.startChannelId,
-      startedById: vote.startedById,
-      startedByUsername: vote.startedByUsername,
-      createdAt: vote.createdAt,
-      closedAt: Date.now(),
-      endAt: vote.endAt,
-      memes: vote.memes.map((m) => ({ index: m.index, link: m.link, messageId: m.messageId || null })),
-      type: vote.type || 'meme',
-      voteLog: [...vote.voteLog],
-    });
-
-    voteHistoryByGuild.set(guildId, history);
-  }
-
-  function getCurrentOrLatestVote(guildId) {
-    const activeVote = activeVoteByGuild.get(guildId);
-    if (activeVote && !activeVote.closed) {
-      return { vote: activeVote, isActive: true };
-    }
-
-    const history = voteHistoryByGuild.get(guildId) || [];
-    if (history.length === 0) {
-      return null;
-    }
-
-    const latestHistory = history[history.length - 1];
-    return {
-      vote: historyEntryToVoteView(latestHistory),
-      isActive: false,
-    };
-  }
-
-  function historyEntryToVoteView(historyEntry) {
-    const voteLog = historyEntry.voteLog || [];
-    const memes = normalizeMemesForHistory(historyEntry);
-
-    const votersByMeme = new Map(memes.map((meme) => [meme.index, new Set()]));
-    const votesByUser = new Map();
-
-    for (const entry of voteLog) {
-      const memeIndex = entry.memeIndex ?? entry.number;
-      if (!Number.isFinite(memeIndex)) {
-        continue;
-      }
-
-      if (!votersByMeme.has(memeIndex)) {
-        votersByMeme.set(memeIndex, new Set());
-      }
-      votersByMeme.get(memeIndex).add(entry.userId);
-
-      const existingVotes = votesByUser.get(entry.userId) || new Set();
-      existingVotes.add(memeIndex);
-      votesByUser.set(entry.userId, existingVotes);
-    }
-
-    return {
-      memes,
-      voteLog,
-      votersByMeme,
-      votesByUser,
-      closed: true,
-    };
-  }
-
-  function savePersistentState() {
-    const payload = {
-      version: 2,
-      activeVotesByGuild: Object.fromEntries(
-        [...activeVoteByGuild.entries()].map(([guildId, vote]) => [guildId, serializeVote(vote)])
-      ),
-      voteHistoryByGuild: Object.fromEntries(voteHistoryByGuild),
-    };
-
-    try {
-      fs.writeFileSync(VOTE_STORE_FILE, JSON.stringify(payload, null, 2), 'utf8');
-    } catch (error) {
-      console.error('Failed to persist vote data:', error);
-    }
-  }
-
-  function loadPersistentState() {
-    if (!fs.existsSync(VOTE_STORE_FILE)) {
-      return;
-    }
-
-    try {
-      const raw = fs.readFileSync(VOTE_STORE_FILE, 'utf8');
-      const data = JSON.parse(raw);
-
-      const activeVotesByGuild = data.activeVotesByGuild || {};
-      for (const [guildId, serializedVote] of Object.entries(activeVotesByGuild)) {
-        const vote = deserializeVote(serializedVote);
-        if (vote) {
-          activeVoteByGuild.set(guildId, vote);
-        }
-      }
-
-      const persistedHistory = data.voteHistoryByGuild || {};
-      for (const [guildId, entries] of Object.entries(persistedHistory)) {
-        voteHistoryByGuild.set(guildId, Array.isArray(entries) ? entries : []);
-      }
-    } catch (error) {
-      console.error('Failed to load vote data:', error);
-    }
-  }
-
-  function restoreActiveVoteTimeouts() {
-    for (const [guildId, vote] of activeVoteByGuild.entries()) {
-      const remainingMs = vote.endAt - Date.now();
-
-      if (remainingMs <= 0) {
-        vote.closed = true;
-        activeVoteByGuild.delete(guildId);
-        saveVoteHistory(guildId, vote);
-        continue;
-      }
-
-      vote.timeoutHandle = setTimeout(() => {
-        const activeVote = activeVoteByGuild.get(guildId);
-        if (!activeVote || activeVote.id !== vote.id) {
-          return;
-        }
-
-        activeVote.closed = true;
-        activeVoteByGuild.delete(guildId);
-        saveVoteHistory(guildId, activeVote);
-        savePersistentState();
-      }, remainingMs);
-    }
-
-    savePersistentState();
-  }
-
-  function serializeVote(vote) {
-    return {
-      id: vote.id,
-      guildId: vote.guildId,
-      startChannelId: vote.startChannelId,
-      startedById: vote.startedById,
-      startedByUsername: vote.startedByUsername,
-      createdAt: vote.createdAt,
-      endAt: vote.endAt,
-      memes: vote.memes.map((m) => ({ index: m.index, link: m.link, messageId: m.messageId || null })),
-      type: vote.type || 'meme',
-      voteLog: [...vote.voteLog],
-      closed: vote.closed,
-      votesByUser: Object.fromEntries(
-        [...vote.votesByUser.entries()].map(([userId, values]) => [userId, [...values]])
-      ),
-      votersByMeme: Object.fromEntries(
-        [...vote.votersByMeme.entries()].map(([memeIndex, values]) => [memeIndex, [...values]])
-      ),
-    };
-  }
-
-  function deserializeVote(data) {
-    const memes = normalizeMemes(data);
-    if (memes.length < 2) {
-      return null;
-    }
-
-    const votersByMeme = new Map(memes.map((meme) => [meme.index, new Set()]));
-
-    for (const [memeIndex, values] of Object.entries(data.votersByMeme || {})) {
-      votersByMeme.set(Number(memeIndex), new Set(values));
-    }
-
-    const votesByUser = new Map(
-      Object.entries(data.votesByUser || {}).map(([userId, values]) => [userId, new Set(values)])
-    );
-
-    return {
-      id: data.id,
-      guildId: data.guildId,
-      startChannelId: data.startChannelId,
-      startedById: data.startedById,
-      startedByUsername: data.startedByUsername,
-      createdAt: data.createdAt,
-      endAt: data.endAt,
-      memes,
-      type: data.type || 'meme',
-      votesByUser,
-      votersByMeme,
-      voteLog: Array.isArray(data.voteLog) ? data.voteLog : [],
-      closed: Boolean(data.closed),
-      timeoutHandle: null,
-    };
   }
 
   return {
     buildCommands,
     handleInteraction,
-    getActiveCount: () => activeVoteByGuild.size,
+    getActiveCount: () => activeVotes.size,
   };
 }
 
@@ -827,48 +895,6 @@ function parseMemeButtonCustomId(customId) {
     voteId,
     memeIndex,
   };
-}
-
-function normalizeMemes(data) {
-  if (Array.isArray(data.memes) && data.memes.length > 0) {
-    return data.memes
-      .map((entry, idx) => ({
-        index: Number.isInteger(entry.index) ? entry.index : idx + 1,
-        link: String(entry.link || '').trim(),
-        messageId: entry.messageId || null,
-      }))
-      .filter((entry) => entry.link.length > 0);
-  }
-
-  if (Number.isInteger(data.maxNumber) && data.maxNumber > 0) {
-    return Array.from({ length: data.maxNumber }, (_, idx) => ({
-      index: idx + 1,
-      link: `Meme #${idx + 1}`,
-      messageId: null,
-    }));
-  }
-
-  return [];
-}
-
-function normalizeMemesForHistory(historyEntry) {
-  if (Array.isArray(historyEntry.memes) && historyEntry.memes.length > 0) {
-    return historyEntry.memes
-      .map((entry, idx) => ({
-        index: Number.isInteger(entry.index) ? entry.index : idx + 1,
-        link: String(entry.link || '').trim() || `Meme #${idx + 1}`,
-      }))
-      .filter((entry) => entry.index > 0);
-  }
-
-  if (Number.isInteger(historyEntry.maxNumber) && historyEntry.maxNumber > 0) {
-    return Array.from({ length: historyEntry.maxNumber }, (_, idx) => ({
-      index: idx + 1,
-      link: `Meme #${idx + 1}`,
-    }));
-  }
-
-  return [];
 }
 
 async function logToAuditChannel(client, channelId, content) {
