@@ -4,3 +4,6 @@ npm-debug.log
 .gitignore
 .env
 .DS_Store
+vote.db
+vote.db-wal
+vote.db-shm

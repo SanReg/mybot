@@ -5,9 +5,14 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const path = require('path');
+const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
-const DB_FILE = path.join(process.cwd(), 'vote.db');
+// The database lives on a persistent volume so it survives container rebuilds
+// and restarts. DB_FILE overrides the full path; DB_DIR overrides just the
+// directory. Defaults to the mounted volume at /data/mybot.
+const DB_DIR = process.env.DB_DIR || '/root/data/mybot';
+const DB_FILE = process.env.DB_FILE || path.join(DB_DIR, 'vote.db');
 const MAX_MEMES = 10;
 const REQUIRED_VOTES_PER_USER = 3;
 const MEME_VOTE_AUDIT_GUILD_ID = '931174322989580308';
@@ -35,6 +40,9 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
   // -------------------------------------------------------------------------
 
   function openDatabase() {
+    // Ensure the persistent directory exists so opening the DB never fails on
+    // a fresh volume / first boot.
+    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
     const database = new DatabaseSync(DB_FILE);
     database.exec(`
       CREATE TABLE IF NOT EXISTS votes (

@@ -5,7 +5,7 @@ git pull origin master
 docker stop quizbot || true
 docker rm quizbot || true
 docker build -t quizbot .
-docker run -d --name quizbot --restart unless-stopped --env-file .env -p 3000:3000 quizbot
+docker run -d --env-file .env -v /root/data/mybot:/root/data/mybot <image>
 docker logs -f quizbot
 
 This bot provides:
