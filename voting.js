@@ -135,6 +135,13 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     db.prepare(`UPDATE votes SET closed = 1, closed_at = ? WHERE id = ?`).run(closedAt, voteId);
   }
 
+  function deleteUserVoteLog(voteId, userId) {
+    const result = db
+      .prepare(`DELETE FROM vote_log WHERE vote_id = ? AND user_id = ?`)
+      .run(voteId, userId);
+    return Number(result.changes || 0);
+  }
+
   function readMemes(voteId) {
     const rows = db
       .prepare(`SELECT idx, link, message_id FROM vote_memes WHERE vote_id = ? ORDER BY idx ASC`)
@@ -352,6 +359,16 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
           .setName('vote-details')
           .setDescription('Show per-user art/meme vote details for this server (vote starters only).')
       ),
+      addTypeOption(
+        new SlashCommandBuilder()
+          .setName('remove-votes')
+          .setDescription("Remove a user's votes from the active art/meme round (vote starters only).")
+      ).addUserOption((option) =>
+        option
+          .setName('user')
+          .setDescription('The user whose votes should be removed')
+          .setRequired(true)
+      ),
     ];
   }
 
@@ -391,6 +408,11 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
 
     if (interaction.commandName === 'vote-details') {
       await handleVoteDetailsCommand(interaction);
+      return true;
+    }
+
+    if (interaction.commandName === 'remove-votes') {
+      await handleRemoveVotesCommand(interaction);
       return true;
     }
 
@@ -807,6 +829,79 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
       content: `${displayLabel} vote ended successfully.`,
       flags: 64,
     });
+  }
+
+  async function handleRemoveVotesCommand(interaction) {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only be used in a server.',
+        flags: 64,
+      });
+      return;
+    }
+
+    const isStarter = voteStarterIds.has(interaction.user.id);
+    if (!isStarter) {
+      await interaction.reply({
+        content: 'You are not allowed to remove votes.',
+        flags: 64,
+      });
+      return;
+    }
+
+    const voteType = normalizeVoteType(interaction.options.getString('type'));
+    const displayLabel = voteType === 'art' ? 'Art' : 'Meme';
+    const displayWord = voteType === 'art' ? 'art' : 'meme';
+    const targetUser = interaction.options.getUser('user', true);
+
+    const vote = getActiveVote(interaction.guildId, voteType);
+    if (!vote) {
+      await interaction.reply({
+        content: `There is no active ${displayLabel} vote in this server.`,
+        flags: 64,
+      });
+      return;
+    }
+
+    const removedIndexes = [...(vote.votesByUser.get(targetUser.id) || new Set())].sort(
+      (a, b) => a - b
+    );
+
+    if (removedIndexes.length === 0) {
+      await interaction.reply({
+        content: `${targetUser.tag} has no votes in the active ${displayLabel} round.`,
+        flags: 64,
+      });
+      return;
+    }
+
+    // Remove from the persistent log, then drop the user from the in-memory tallies.
+    deleteUserVoteLog(vote.id, targetUser.id);
+    vote.votesByUser.delete(targetUser.id);
+    for (const voters of vote.votersByMeme.values()) {
+      voters.delete(targetUser.id);
+    }
+    vote.voteLog = vote.voteLog.filter((entry) => entry.userId !== targetUser.id);
+
+    const removedList = removedIndexes.map((index) => `#${index}`).join(', ');
+
+    await interaction.reply({
+      content:
+        `Removed **${removedIndexes.length}** ${displayWord} vote(s) for ${targetUser} ` +
+        `from the active ${displayLabel} round (${removedList}).`,
+      flags: 64,
+    });
+
+    // Log removals to the audit channel the same way individual votes are logged.
+    if (interaction.guildId === MEME_VOTE_AUDIT_GUILD_ID) {
+      await logToAuditChannel(
+        interaction.client,
+        MEME_VOTE_AUDIT_CHANNEL_ID,
+        `[MEME_VOTE_REMOVE] by=${interaction.user.tag} (${interaction.user.id}) ` +
+          `target=${targetUser.tag} (${targetUser.id}) guild=${interaction.guildId} ` +
+          `${displayWord}=${removedList}`
+      );
+    }
   }
 
   async function closeVote(guildId, type, channel, reason) {
