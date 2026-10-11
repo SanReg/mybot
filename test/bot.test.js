@@ -8,7 +8,7 @@ const { registerCommands } = require('../src/discord/commands');
 const { createInteractionHandler } = require('../src/discord/interactions');
 const { createHealthApp } = require('../src/http/health');
 const { createLockModule } = require('../src/features/lock');
-const { GatewayIntentBits } = require('discord.js');
+const { GatewayIntentBits, MessageFlags } = require('discord.js');
 
 function config() {
   return loadConfig({
@@ -40,7 +40,7 @@ test('registration replaces global and test commands without quiz commands', asy
   assert.deepEqual(registered.map(([id]) => id), ['global', 'first', 'second']);
   const names = registered[0][1].map((command) => command.name).sort();
   assert.deepEqual(names, [
-    'art-list', 'btc', 'echo', 'end-vote', 'lock', 'meme-list', 'my-votes',
+    'art-list', 'btc', 'echo', 'end-vote', 'help', 'lock', 'meme-list', 'my-votes',
     'remove-votes', 'start-vote', 'unlock', 'vote-details', 'vote-results',
   ].sort());
   assert.deepEqual(registered[1][1], registered[0][1]);
@@ -58,6 +58,33 @@ test('interaction routing sends buttons only to voting and commands to their mod
   calls.length = 0;
   await handler({ isChatInputCommand: () => true, isButton: () => false });
   assert.deepEqual(calls, ['voting', 'echo']);
+});
+
+test('/help replies with a dismissible private embed covering enabled commands and usage', async (t) => {
+  for (const lockEnabled of [true, false]) {
+    const settings = config();
+    if (!lockEnabled) settings.lock = { lockManagerRoleIds: new Set() };
+    const { modules, voting } = createFeatures(settings);
+    t.after(() => voting.close());
+    const replies = [];
+    await createInteractionHandler(modules)({
+      commandName: 'help', isChatInputCommand: () => true, isButton: () => false,
+      reply: async (response) => replies.push(response),
+    });
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].flags, MessageFlags.Ephemeral);
+    const embed = replies[0].embeds[0].toJSON();
+    const names = modules.flatMap((module) => module.buildCommands()).map((command) => `/${command.name}`);
+    assert.deepEqual(embed.fields.map((field) => field.name), names);
+    assert.equal(embed.fields.some((field) => field.name === '/lock'), lockEnabled);
+    assert.match(embed.fields.find((field) => field.name === '/start-vote').value, /duration:<hours>/);
+    assert.match(embed.fields.find((field) => field.name === '/start-vote').value, /\[entry3:<url>\]/);
+    assert.match(embed.fields.find((field) => field.name === '/echo').value, /configured echo users/);
+    assert.match(embed.footer.text, /Dismiss message/);
+    assert.ok(embed.fields.length <= 25);
+    assert.ok(embed.fields.every((field) => field.value.length <= 1024));
+    assert.ok(JSON.stringify(embed).length < 6000);
+  }
 });
 
 test('lock and unlock authorize roles supplied by cached and raw interaction members', async () => {
