@@ -1,11 +1,15 @@
 {
   "name": "quizbot",
   "version": "1.0.0",
-  "description": "Discord quiz and vote bot with health endpoint",
+  "description": "Discord slash command and voting bot without privileged intents",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   },
   "keywords": [],
   "author": "",

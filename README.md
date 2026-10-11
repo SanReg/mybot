@@ -1,219 +1,78 @@
-# Quiz + Vote Discord Bot (Node.js)
+﻿# sliceBoi
 
-cd mybot
-git pull origin master
-docker stop quizbot || true
-docker rm quizbot || true
-docker build -t quizbot .
-docker run -d --env-file .env -v /root/data/mybot:/root/data/mybot <image>
-docker logs -f quizbot
+A Discord bot using slash commands and buttons. It requests only the non-privileged `Guilds` gateway intent.
 
-This bot provides:
-- Quiz mode: `/question name:<text> answer:<text>` by authorized users only.
-- Quiz scoreboard reset: `/reset` by quiz masters only.
-- Voting mode: `/start-vote duration:<hours> meme1:<url> meme2:<url> ...` by authorized users only, with one button per meme for voters.
-- Echo mode: `/echo message:<text>` replies privately and posts the same text to the channel, restricted to allowed user IDs.
-- Lock mode: `/lock` and `/unlock` allow users with configured manager roles to lock or unlock one configured channel for one configured role.
-- BTC mode: `/btc` fetches current BTC/USD price and displays it in an embed.
-- Activity status mode: a dedicated status loop fetches BTC/USD every 60 seconds and updates bot status to watch the current BTC price.
-- Reddit relay mode: polls `https://www.reddit.com/r/ecils/new/.rss` every 60 seconds and posts new items into one configured Discord channel.
-- Health endpoint: `GET /health` on `PORT` (default `3000`).
+## Features
 
-## Features implemented
+- Meme and art voting: `/start-vote`, `/end-vote`, `/my-votes`, `/vote-results`, `/vote-details`, and `/remove-votes`. Each user gets three votes for different entries. Vote starters manage rounds and view private results.
+- `/echo message:<text>` posts text supplied through the command, restricted to `ECHO_MASTER_IDS`.
+- `/lock` and `/unlock` change sending permissions for a configured role in a configured channel, restricted to `LOCK_MANAGER_ROLE_IDS`.
+- `/btc` displays the BTC/USD quote and slice-to-satoshi conversion.
+- A BTC price activity status updates every minute.
+- Reddit meme and art relays poll every 5 minutes, post entries up to 10 minutes old, and remember posted IDs for 15 minutes. `/meme-list days:<number>` and `/art-list days:<number>` list recent posts, restricted to `VOTE_STARTER_IDS`.
+- `/health` supplies diagnostics; `/ready` returns HTTP 503 until Discord is ready.
 
-1. Quiz bot
-- Only Discord user IDs in `QUIZ_MASTER_IDS` can run `/question`.
-- Question is posted in the same channel.
-- Users can also answer by sending a normal message in that channel.
-- First correct answer: `100` points, second: `60`, third: `40`.
-- Winner usernames and per-question points are recorded in memory.
-- Total user points are tracked in a global in-memory scoreboard (`/scoreboard`).
-- Only IDs in `QUIZ_MASTER_IDS` can run `/reset` to clear the scoreboard.
-- Successful `/reset` posts in the same channel as `<@userId> reset the leaderboard.` and is logged on the server.
-
-2. Vote bot
-- Only IDs in `VOTE_STARTER_IDS` can run `/start-vote`.
-- Only IDs in `VOTE_STARTER_IDS` can run `/end-vote` to close the active vote immediately.
-- Vote starter supplies meme links (`meme1`, `meme2`, ... up to `meme10`).
-- Bot posts one normal message per meme, each with one vote button for that meme.
-- Reddit links are automatically converted to `https://www.vxreddit.com/...` for better media preview.
-- Only users with role `VOTER_ROLE_ID` can vote using buttons.
-- Each participant can vote exactly 3 times, and all 3 must be for different memes.
-- Username and meme choice for each vote are recorded in memory.
-- `/vote-results` and `/vote-details` remain private to vote starters.
-
-3. Echo bot
-- `/echo message:<text>` sends a private confirmation and repeats the same message publicly in the same channel.
-- Only users listed in `ECHO_MASTER_IDS` can use `/echo`.
-
-4. Lock bot
-- `/lock` updates channel permissions so users with role `LOCKED_ROLE_ID` cannot send messages in `LOCK_CHANNEL_ID`.
-- `/unlock` explicitly allows `LOCKED_ROLE_ID` to send messages in `LOCK_CHANNEL_ID`.
-- Only members with at least one role from `LOCK_MANAGER_ROLE_IDS` can run `/lock`.
-- Only members with at least one role from `LOCK_MANAGER_ROLE_IDS` can run `/unlock`.
-- Both commands post an embed message in `LOCK_CHANNEL_ID` showing who triggered the action.
-- The command is registered only when all lock env values are configured.
-
-5. BTC price bot
-- `/btc` fetches the latest BTC/USD quote from `https://api.addslice.com/v1/quotes/BTC/USD`.
-- Displays `data.rate` in an embed with requester details.
-- Also shows `1000 slices = <sats>` in the same embed.
-
-6. Reddit relay bot
-- Polls `REDDIT_FEED_URL` every `REDDIT_POLL_SECONDS` (default: 60s).
-- Posts only unseen feed items to `REDDIT_CHANNEL_ID`, in chronological order.
-- Ignores posts older than `REDDIT_MAX_POST_AGE_MINUTES` (default: 15 minutes).
-- Keeps posted IDs in memory and removes entries older than `REDDIT_MEMORY_TTL_MINUTES` (default: 20 minutes).
+The message-based quiz and its `/question`, `/scoreboard`, and `/reset` commands have been removed. `ENABLE_QUIZ`, `QUIZ_MASTER_IDS`, and `QUIZ_TIMEOUT_SECONDS` are no longer used.
 
 ## Setup
 
-1. Create a Discord bot in the Discord Developer Portal.
-2. Enable bot intents:
-- `SERVER MEMBERS INTENT` (optional for this bot)
-- `MESSAGE CONTENT INTENT` (required for quiz answer messages)
-3. Invite the bot to your server with `applications.commands` and bot permissions.
+Use Node.js 22.13 or later (Docker uses Node.js 24).
 
-## Install
+1. Create a bot in the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Leave all three **Privileged Gateway Intents** switches off: Presence, Server Members, and Message Content.
+3. Invite the bot with the `bot` and `applications.commands` scopes. Give it View Channels, Send Messages, and Embed Links permissions. Channel locking also needs Manage Roles permission to edit permission overwrites, with the bot role above the target role.
+4. Copy `.env.example` to `.env` and set `DISCORD_TOKEN`. The current voting implementation accepts any server member's vote.
+5. Configure authorized user IDs, optional lock settings, Reddit feeds, and destination channels in `.env.example`.
 
-```bash
-npm install
-```
+Slash command values and member data arrive through [Discord interaction payloads](https://docs.discord.com/developers/interactions/receiving-and-responding). Reading users' ordinary messages is no longer needed. See [Discord's gateway documentation](https://docs.discord.com/developers/events/gateway) for privileged intent details.
 
-## Configure
-
-Copy `.env.example` to `.env` and set values:
-
-```env
-DISCORD_TOKEN=...
-CLIENT_ID=...
-GUILD_IDS=111111111111111111,222222222222222222 # optional test guild list
-GUILD_ID=111111111111111111 # optional legacy fallback
-PORT=3000
-QUIZ_MASTER_IDS=111111111111111111,222222222222222222
-VOTE_STARTER_IDS=111111111111111111,333333333333333333
-VOTER_ROLE_ID=444444444444444444
-ECHO_MASTER_IDS=111111111111111111,222222222222222222
-LOCK_MANAGER_ROLE_IDS=555555555555555555,666666666666666666
-LOCK_CHANNEL_ID=777777777777777777
-LOCKED_ROLE_ID=888888888888888888
-QUIZ_TIMEOUT_SECONDS=600
-ENABLE_QUIZ=false
-REDDIT_FEED_URL=https://www.reddit.com/r/ecils/new/.rss
-REDDIT_CHANNEL_ID=931635666922651719
-REDDIT_POLL_SECONDS=60
-REDDIT_MAX_POST_AGE_MINUTES=15
-REDDIT_MEMORY_TTL_MINUTES=20
-```
-
-`ENABLE_QUIZ=false` disables all quiz commands and quiz message handling.
-Set `ENABLE_QUIZ=true` to re-enable quiz features.
-
-## Run
-
-```bash
+```powershell
+Copy-Item .env.example .env
+npm ci
 npm start
 ```
 
-## Deploy On Ubuntu VM (Docker)
+For local database storage, set `DB_DIR=.` or `DB_FILE=./vote.db`. By default the database remains at `/root/data/mybot/vote.db`, matching the existing Docker volume. `DB_FILE` takes precedence over `DB_DIR`. Existing SQLite data needs no migration and is preserved across this refactor. Legacy `vote.json` is retained but is not used by the current bot.
 
-### 1. Install Docker on the VM
+`GUILD_IDS` accepts comma-separated test server IDs; `GUILD_ID` is a legacy fallback. Commands are replaced globally and in configured test guilds on startup, removing old quiz commands from those scopes. Global changes may take time to appear. Any previously configured test guild must remain in the list for its old commands to be removed.
 
-```bash
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo usermod -aG docker $USER
-newgrp docker
+## Project structure
+
+```text
+index.js                   Environment loading and startup
+src/
+  config.js                Environment configuration
+  bot.js                   Bot lifecycle and background tasks
+  discord/
+    client.js              Gateway intent configuration
+    commands.js            Slash command registration
+    interactions.js        Command and button routing
+  features/                Voting, echo, lock, BTC, and Reddit modules
+  services/status.js       BTC activity status loop
+  http/health.js           Health and readiness endpoints
+  utils/member-roles.js    Roles supplied by interactions
+archive/voting.rollback.js Legacy JSON voting implementation, excluded from Docker
+test/                      Offline regression tests
 ```
 
-### 2. Copy or clone the bot project
+`npm run dev` watches for changes. `npm test` runs offline tests without signing into Discord or contacting external APIs.
+
+## Docker
 
 ```bash
-git clone <your-repo-url> quizBot
-cd quizBot
-```
-
-### 3. Create your `.env` file
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-If your repo does not have `.env.example`, create `.env` manually with the required values.
-
-### 4. Build the Docker image
-
-```bash
-docker build -t quizbot:latest .
-```
-
-### 5. Run the container
-
-```bash
+docker build -t sliceboi .
 docker run -d \
-  --name quizbot \
+  --name sliceboi \
   --restart unless-stopped \
   --env-file .env \
   -p 3000:3000 \
-  quizbot:latest
-```
-
-### 6. Verify bot and health endpoint
-
-```bash
-docker ps
-docker logs -f quizbot
+  -v /root/data/mybot:/root/data/mybot \
+  sliceboi
+docker logs -f sliceboi
 curl http://localhost:3000/health
+curl http://localhost:3000/ready
 ```
 
-### 7. Update after code changes
+Mount the same database directory when rebuilding or replacing the container. `.env` and local SQLite files are excluded from the image.
 
-```bash
-docker stop quizbot
-docker rm quizbot
-docker build -t quizbot:latest .
-docker run -d \
-  --name quizbot \
-  --restart unless-stopped \
-  --env-file .env \
-  -p 3000:3000 \
-  quizbot:latest
-```
-
-If you use a cloud firewall/security group, allow inbound TCP on port `3000` only if you need external access to `/health`.
-
-## Health check
-
-```bash
-curl http://localhost:3000/health
-```
-
-Returns JSON like:
-
-```json
-{
-  "status": "ok",
-  "botReady": true,
-  "activeQuizChannels": 0,
-  "activeVoteChannels": 0,
-  "timestamp": "2026-03-27T12:00:00.000Z"
-}
-```
-
-## Notes
-
-- Data is currently in-memory (resets on restart).
-- Code is split into `quiz.js`, `voting.js`, `echo.js`, `lock.js`, `btcprice.js`, and `status.js`, wired by `index.js`.
-- Previous numeric vote implementation is backed up in `voting.rollback.js` for rollback.
-- Slash commands are always registered globally so they work in every guild where the bot is installed.
-- If `GUILD_IDS` or `GUILD_ID` is set, the bot also tries a fast test-guild sync for those IDs.
-- Invalid test guild IDs are skipped with a warning and no longer crash bot startup.
+`PORT` defaults to 3000. The health server starts after command registration, or after `HEALTH_SERVER_START_TIMEOUT_MS` (default 25000) if login is still pending, or immediately on login failure. `/health` reports readiness, login diagnostics, and the active vote count. `/ready` checks the Discord connection, not the availability of Reddit or BTC APIs.

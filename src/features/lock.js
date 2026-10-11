@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { getMemberRoleIds } = require('../utils/member-roles');
 
 function createLockModule({ lockManagerRoleIds, lockChannelId, lockedOutRoleId }) {
   const canManageLocks = lockManagerRoleIds instanceof Set && lockManagerRoleIds.size > 0;
@@ -48,7 +49,8 @@ function createLockModule({ lockManagerRoleIds, lockChannelId, lockedOutRoleId }
       return;
     }
 
-    if (!interaction.member || !interaction.member.roles || !interaction.member.roles.cache) {
+    const memberRoleIds = getMemberRoleIds(interaction.member);
+    if (!memberRoleIds) {
       await interaction.reply({
         content: 'Could not validate your server roles.',
         flags: 64,
@@ -56,7 +58,7 @@ function createLockModule({ lockManagerRoleIds, lockChannelId, lockedOutRoleId }
       return;
     }
 
-    const isAllowed = [...lockManagerRoleIds].some((roleId) => interaction.member.roles.cache.has(roleId));
+    const isAllowed = [...lockManagerRoleIds].some((roleId) => memberRoleIds.has(roleId));
     if (!isAllowed) {
       await interaction.reply({
         content: 'You are not allowed to use /lock.',
@@ -115,7 +117,8 @@ function createLockModule({ lockManagerRoleIds, lockChannelId, lockedOutRoleId }
       return;
     }
 
-    if (!interaction.member || !interaction.member.roles || !interaction.member.roles.cache) {
+    const memberRoleIds = getMemberRoleIds(interaction.member);
+    if (!memberRoleIds) {
       await interaction.reply({
         content: 'Could not validate your server roles.',
         flags: 64,
@@ -123,7 +126,7 @@ function createLockModule({ lockManagerRoleIds, lockChannelId, lockedOutRoleId }
       return;
     }
 
-    const isAllowed = [...lockManagerRoleIds].some((roleId) => interaction.member.roles.cache.has(roleId));
+    const isAllowed = [...lockManagerRoleIds].some((roleId) => memberRoleIds.has(roleId));
     if (!isAllowed) {
       await interaction.reply({
         content: 'You are not allowed to use /unlock.',

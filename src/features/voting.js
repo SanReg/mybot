@@ -8,11 +8,6 @@ const path = require('path');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
-// The database lives on a persistent volume so it survives container rebuilds
-// and restarts. DB_FILE overrides the full path; DB_DIR overrides just the
-// directory. Defaults to the mounted volume at /data/mybot.
-const DB_DIR = process.env.DB_DIR || '/root/data/mybot';
-const DB_FILE = process.env.DB_FILE || path.join(DB_DIR, 'vote.db');
 const MAX_MEMES = 10;
 const REQUIRED_VOTES_PER_USER = 3;
 const MEME_VOTE_AUDIT_GUILD_ID = '931174322989580308';
@@ -27,7 +22,7 @@ function activeKey(guildId, type) {
   return `${guildId}:${type}`;
 }
 
-function createVotingModule({ voteStarterIds, voterRoleId }) {
+function createVotingModule({ voteStarterIds, dbFile }) {
   // Active votes are keyed by `${guildId}:${type}` so a meme round and an art
   // round can run concurrently in the same guild.
   const activeVotes = new Map();
@@ -42,8 +37,8 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
   function openDatabase() {
     // Ensure the persistent directory exists so opening the DB never fails on
     // a fresh volume / first boot.
-    fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-    const database = new DatabaseSync(DB_FILE);
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    const database = new DatabaseSync(dbFile);
     database.exec(`
       CREATE TABLE IF NOT EXISTS votes (
         id TEXT PRIMARY KEY,
@@ -932,6 +927,10 @@ function createVotingModule({ voteStarterIds, voterRoleId }) {
     buildCommands,
     handleInteraction,
     getActiveCount: () => activeVotes.size,
+    close: () => {
+      for (const vote of activeVotes.values()) clearTimeout(vote.timeoutHandle);
+      db.close();
+    },
   };
 }
 

@@ -7,3 +7,5 @@ npm-debug.log
 vote.db
 vote.db-wal
 vote.db-shm
+archive
+test
