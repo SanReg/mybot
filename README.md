@@ -4,7 +4,7 @@ A Discord bot using slash commands and buttons. It requests only the non-privile
 
 ## Features
 
-- `/help` lists enabled commands, usage, and access restrictions in a private embed you can dismiss.
+- `/help` lists enabled commands and what they do in a private embed you can dismiss. Only users in `VOTE_STARTER_IDS` can use it.
 - Meme and art voting: `/start-vote`, `/end-vote`, `/my-votes`, `/vote-results`, `/vote-details`, and `/remove-votes`. Each user gets three votes for different entries. Vote starters manage rounds and view private results.
 - `/echo message:<text>` posts text supplied through the command, restricted to `ECHO_MASTER_IDS`.
 - `/lock` and `/unlock` change sending permissions for a configured role in a configured channel, restricted to `LOCK_MANAGER_ROLE_IDS`.

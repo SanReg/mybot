@@ -8,6 +8,7 @@ const { registerCommands } = require('../src/discord/commands');
 const { createInteractionHandler } = require('../src/discord/interactions');
 const { createHealthApp } = require('../src/http/health');
 const { createLockModule } = require('../src/features/lock');
+const { createHelpModule } = require('../src/features/help');
 const { GatewayIntentBits, MessageFlags } = require('discord.js');
 
 function config() {
@@ -60,7 +61,7 @@ test('interaction routing sends buttons only to voting and commands to their mod
   assert.deepEqual(calls, ['voting', 'echo']);
 });
 
-test('/help replies with a dismissible private embed covering enabled commands and usage', async (t) => {
+test('/help replies with a dismissible private embed listing enabled commands and descriptions', async (t) => {
   for (const lockEnabled of [true, false]) {
     const settings = config();
     if (!lockEnabled) settings.lock = { lockManagerRoleIds: new Set() };
@@ -69,6 +70,7 @@ test('/help replies with a dismissible private embed covering enabled commands a
     const replies = [];
     await createInteractionHandler(modules)({
       commandName: 'help', isChatInputCommand: () => true, isButton: () => false,
+      user: { id: 'starter' },
       reply: async (response) => replies.push(response),
     });
     assert.equal(replies.length, 1);
@@ -77,13 +79,29 @@ test('/help replies with a dismissible private embed covering enabled commands a
     const names = modules.flatMap((module) => module.buildCommands()).map((command) => `/${command.name}`);
     assert.deepEqual(embed.fields.map((field) => field.name), names);
     assert.equal(embed.fields.some((field) => field.name === '/lock'), lockEnabled);
-    assert.match(embed.fields.find((field) => field.name === '/start-vote').value, /duration:<hours>/);
-    assert.match(embed.fields.find((field) => field.name === '/start-vote').value, /\[entry3:<url>\]/);
-    assert.match(embed.fields.find((field) => field.name === '/echo').value, /configured echo users/);
+    const commands = modules.flatMap((module) => module.buildCommands()).map((command) => command.toJSON());
+    assert.deepEqual(embed.fields.map((field) => field.value), commands.map((command) => command.description));
     assert.match(embed.footer.text, /Dismiss message/);
     assert.ok(embed.fields.length <= 25);
     assert.ok(embed.fields.every((field) => field.value.length <= 1024));
     assert.ok(JSON.stringify(embed).length < 6000);
+  }
+});
+
+test('/help denies other users and defaults to denying access when no starters are configured', async () => {
+  for (const voteStarterIds of [new Set(['starter']), new Set(), undefined]) {
+    const help = createHelpModule({
+      voteStarterIds,
+      getCommands: () => { throw new Error('Unauthorized users must not receive the command list'); },
+    });
+    let reply;
+    assert.equal(await help.handleInteraction({
+      commandName: 'help', isChatInputCommand: () => true, user: { id: 'other' },
+      reply: async (response) => { reply = response; },
+    }), true);
+    assert.equal(reply.flags, MessageFlags.Ephemeral);
+    assert.match(reply.content, /not allowed/);
+    assert.equal(reply.embeds, undefined);
   }
 });
 

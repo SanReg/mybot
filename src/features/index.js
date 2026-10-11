@@ -16,7 +16,10 @@ function createFeatures(config) {
     createRedditModule({ ...config.reddit, allowedStarterIds: config.voting.voteStarterIds }),
     createRedditArtModule({ ...config.redditArt, allowedStarterIds: config.voting.voteStarterIds }),
   ];
-  modules.push(createHelpModule({ getCommands: () => modules.flatMap((module) => module.buildCommands()) }));
+  modules.push(createHelpModule({
+    voteStarterIds: config.voting.voteStarterIds,
+    getCommands: () => modules.flatMap((module) => module.buildCommands()),
+  }));
   return { modules, voting };
 }
 
